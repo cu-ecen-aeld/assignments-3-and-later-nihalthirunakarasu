@@ -11,9 +11,9 @@
 #############################################################################
 
 
-## Passing two paramters. The first one is the file to write to and the second is the string to write
-#writefile=$1
-#writestr=$2
+# Passing two paramters. The first one is the file to write to and the second is the string to write
+writefile=$1
+writestr=$2
 
 # Checking if the correct number of paramters were passed by the user
 if [ $# -ne 2 ]
