@@ -24,10 +24,6 @@ then
     exit 1
 fi
 
-## Printing the parameters passed by the user
-#echo "filesdir = ${filesdir}"
-#echo "searchstr =  ${searchstr}"
-
 #Checking if the path mentioned is valid
 if [ -d "${filesdir}" ]
 then 
@@ -43,21 +39,12 @@ else
 fi
 
 #Checking the number of files the searchstr is found
-#echo "Number of files \"${searchstr}\" occured in '${filesdir}': "
 num_files="`grep -l -r ${searchstr} ${filesdir} | wc -l`"
-## Searches all the files but not the sub directories
-#grep -l ${searchstr} ${filesdir}* | wc -l
 
 #Checking the number of lines the searchstr is found
-#echo "Number of lines \"${searchstr}\" occured in '${filesdir}': "
 num_lines=$(grep -n -r ${searchstr} ${filesdir} | wc -l)
-## Searches all the files but not the sub directories
-#grep -n ${searchstr} ${filesdir}* | wc -l
 
 #Checking the number of files the searchstr is found
-#echo "Number of times \"${searchstr}\" occured in '${filesdir}': "
 num_instances="`grep -o -i -r ${searchstr} ${filesdir} | wc -l`"
-## Searches all the files but not the sub directories
-#grep -i ${searchstr} ${filesdir}* | wc -l
 
 echo "The number of files are ${num_files} and the number of matching lines are ${num_lines}"

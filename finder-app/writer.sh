@@ -22,10 +22,6 @@ then
     exit 1
 fi
 
-## Printing the parameters passed by the user
-#echo "writefile = ${writefile}"
-#echo "writestr =  ${writestr}"
-
 # Checking if the path mentioned is valid
 if [ -d "${writefile}" ]
 then 
