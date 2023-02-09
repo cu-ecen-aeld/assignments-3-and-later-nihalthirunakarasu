@@ -20,6 +20,26 @@ struct thread_data{
      * if an error occurred.
      */
     bool thread_complete_success;
+
+    /**
+     * Stores the thread pointer
+     */
+    pthread_t *thread;
+
+    /**
+     * Stores the pointer to the mutex
+     */
+    pthread_mutex_t *mutex;
+    
+    /**
+     * Stores the timer to wait to obtain the lock
+     */
+    int wait_to_obtain_ms;
+
+    /**
+     * Stores the timer to wait to release the lock
+     */
+    int wait_to_release_ms;
 };
 
 
