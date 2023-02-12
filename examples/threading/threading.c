@@ -21,12 +21,9 @@ void* threadfunc(void* thread_param)
 
     struct thread_data* thread_param_data = (struct thread_data*)thread_param;
 
-    // struct timespec time_sleep;
-
-    // time_sleep.tv_sec = (int)((thread_param_data->wait_to_obtain_ms)/100);
-    // time_sleep.tv_nsec = ((thread_param_data->wait_to_obtain_ms)/100)*1000000;
-    // status_int = nanosleep(&time_sleep, &time_sleep);
+    // Sleep for wait_to_obtain_ms time to obtain the lock. This takes in values in micro sec
     status_int = usleep(thread_param_data->wait_to_obtain_ms*1000);
+    // Checking the error status of the usleep
     if(status_int != 0)
     {
         ERROR_LOG("Error: Failed to sleep through nanosleep(). Error code: %d", errno);
@@ -34,7 +31,9 @@ void* threadfunc(void* thread_param)
         return thread_param_data;
     }
 
+    // Locking the mutex
     status_int = pthread_mutex_lock(thread_param_data->mutex);
+    // Checking the error status of locking mutex
     if(status_int != 0)
     {
         ERROR_LOG("Error: Failed to lock mutex through pthread_mutex_lock(). Error code: %d", errno);
@@ -42,10 +41,9 @@ void* threadfunc(void* thread_param)
         return thread_param_data;
     }
 
-    // time_sleep.tv_sec = (int)((thread_param_data->wait_to_release_ms)/100);
-    // time_sleep.tv_nsec = ((thread_param_data->wait_to_release_ms)/100)*1000000;
-    // status_int = nanosleep(&time_sleep, &time_sleep);
+    // Sleep for wait_to_obtain_ms time to obtain the lock. This takes in values in micro sec
     status_int = usleep(thread_param_data->wait_to_obtain_ms*1000);
+    // Checking the error status of the usleep
     if(status_int != 0)
     {
         ERROR_LOG("Error: Failed to sleep through nanosleep(). Error code: %d", errno);
@@ -53,7 +51,9 @@ void* threadfunc(void* thread_param)
         return thread_param_data;
     }
 
+    // Unlocking the mutex
     status_int = pthread_mutex_unlock(thread_param_data->mutex);
+    // Checking the error status of unlocking mutex
     if(status_int != 0)
     {
         ERROR_LOG("Error: Failed to unlock mutex through pthread_mutex_unlock(). Error code: %d", errno);
@@ -90,10 +90,12 @@ bool start_thread_obtaining_mutex(pthread_t *thread, pthread_mutex_t *mutex,int 
     thread_param_data->wait_to_release_ms = wait_to_release_ms;
     thread_param_data->thread_complete_success = false;
 
+    // Creating a thread
     status_int = pthread_create(thread, 
                                 NULL,
                                 threadfunc,
                                 thread_param_data);
+    // Checking erro status of creating a thread
     if(status_int != 0)
     {
         ERROR_LOG("Error: Failled to create thread through pthread_create(). Error code: %d", errno);
