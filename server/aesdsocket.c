@@ -1,0 +1,427 @@
+/*
+This file contains the code for server design.
+
+Reference: https://beej.us/guide/bgnet/html/ 
+*/
+
+#include <stdio.h>
+#include <string.h>
+#include <syslog.h>
+#include <stdbool.h>
+#include <errno.h>
+#include <netdb.h>
+#include <stdlib.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <linux/fs.h>
+
+
+#include <sys/stat.h>
+#include <fcntl.h>
+
+#include <unistd.h>
+
+char socket_file_path[50] = "/var/tmp/aesdsocketdata";
+
+#define ASCII_NEWLINE 10
+
+int main (int argc, char** argv)
+{
+    // Appends aesdsocket.c to all the logs by default t is the program name
+    // LOG_PERROR also logs error to stderr
+    // Sets the facility to USER
+    openlog("aesdsocket.c", LOG_PERROR, LOG_USER);
+
+    /*********************************************************************************************************
+                            Creating or opening the file /var/tmp/aesdsocketdata
+    **********************************************************************************************************/
+    // The open() system call opens the file specified by pathname.  If
+    // the specified file does not exist, it may optionally (if O_CREAT
+    // is specified in flags) be created by open().
+    // int open(const char *pathname, int flags, mode_t mode);
+    // manpage: https://man7.org/linux/man-pages/man2/open.2.html
+    int socket_file_fd;
+    int socket_file_fd_len = 0;
+    socket_file_fd = open(socket_file_path, O_RDWR | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
+    if(socket_file_fd == -1) // returns -1 on error else file descriptor
+    {
+        printf("\nError: Failed open(). Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed open(). Error code: %d", errno);
+        return -1;
+    }
+
+
+    /*********************************************************************************************************
+                                                Daemon Check
+    **********************************************************************************************************/
+    bool run_as_daemon = false;
+
+    // Checking if the parameters entered are valid
+    if(argc == 2)
+    {
+        if (strcmp(argv[1], "-d") == 0)
+        {
+            run_as_daemon = true;
+        }
+        else
+        {
+            printf("\nError: Invalid paramter. Pass '-d' as a command line parameter to create the server as a daemon \
+                    process else the server will be created as normal process by default.\n");
+            // Syslog the error into the syslog file in /var/log
+            syslog(LOG_ERR, "Invalid paramter");
+            return -1;
+        }
+    }
+    
+    // @ToDo (Comments these out):
+        if (run_as_daemon)
+        printf("Daemon: Hello, World!\n");
+    else
+        printf("Normal: Hello, World!\n");
+
+    /*********************************************************************************************************
+                                                Server Setup
+    **********************************************************************************************************/
+    int server_socket_fd;
+    int status;
+    int option_value = 1; // Used in setsockopt()
+
+    // Creating an end point for communication (i.e. socket)
+    // int socket(int domain, int type, int protocol);
+    // manpage: https://man7.org/linux/man-pages/man2/socket.2.html 
+    server_socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_socket_fd == -1) // 0 on success and -1 for error
+    {
+        printf("\nError: Failed socket(). Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed socket(). Error code: %d", errno);
+        return -1;
+    }
+
+
+    // Creating a sockaddr first
+    // int getaddrinfo(const char *restrict node,
+    //                 const char *restrict service,
+    //                 const struct addrinfo *restrict hints,
+    //                 struct addrinfo **restrict res);
+    // manpage: https://man7.org/linux/man-pages/man3/getaddrinfo.3.html
+    struct addrinfo hints;
+    struct addrinfo *server_info;
+
+    memset(&hints, 0, sizeof(hints));    // Seting the struct to 0
+    hints.ai_family = AF_UNSPEC;        // Dont care if it is a IPv4 or IPv6
+    hints.ai_socktype = SOCK_STREAM;    // TCP stram sockets
+    hints.ai_flags = AI_PASSIVE;        // Fill my IP for me
+
+    // if((status = getaddrinfo(NULL, "9000", &hints, &server_info)) != 0)
+    status = getaddrinfo(NULL, "9000", &hints, &server_info);
+    if(status != 0) // returns 0 if it succeeds or error codes 
+    {
+        printf("\nError: Failed getaddrinfo(). Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed getaddrinfo(). Error code: %d", errno);
+        return -1;
+    }
+
+    // The setsockopt() function shall set the option specified by the
+    // option_name argument, at the protocol level specified by the
+    // level argument, to the value pointed to by the option_value
+    // argument for the socket associated with the file descriptor
+    // specified by the socket argument.
+    // int setsockopt(int socket, int level, int option_name,
+    //                const void *option_value, socklen_t option_len);
+    // manpage: https://man7.org/linux/man-pages/man3/setsockopt.3p.html
+    status = setsockopt(server_socket_fd, SOL_SOCKET, SO_REUSEADDR, &option_value, sizeof(option_value));
+    if(status == -1) // 0 on success and -1 for error
+    {
+        printf("\nError: Failed setsockopt(). Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed setsockopt(). Error code: %d", errno);
+        freeaddrinfo(server_info);
+        return -1;
+    }
+
+    // When a socket is created with socket(2), it exists in a name
+    // space (address family) but has no address assigned to it.  bind()
+    // assigns the address specified by addr to the socket referred to
+    // by the file descriptor sockfd.  addrlen specifies the size, in
+    // bytes, of the address structure pointed to by addr.
+    // int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
+    // manpage: https://man7.org/linux/man-pages/man2/bind.2.html
+    status = bind(server_socket_fd, server_info->ai_addr, server_info->ai_addrlen);
+    if(status == -1) // 0 on success and -1 for error
+    {
+        printf("\nError: Failed bind(). Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed bind(). Error code: %d", errno);
+        freeaddrinfo(server_info);
+        return -1;
+    }
+
+    // The connection is now made and we no longer need the addrinfo so we 
+    // will free server_info as it was malloced in the getaddrinfo() call
+    // to avoid memory leaks.
+    // void freeaddrinfo(struct addrinfo *ai);
+    // manpage: https://man7.org/linux/man-pages/man3/freeaddrinfo.3p.html
+    freeaddrinfo(server_info);
+
+    /*********************************************************************************************************
+                                                Server Listening
+    **********************************************************************************************************/
+    // listen() marks the socket referred to by sockfd as a passive
+    // socket, that is, as a socket that will be used to accept incoming
+    // connection requests using accept(2).
+    // int listen(int sockfd, int backlog);
+    // manpage: https://man7.org/linux/man-pages/man2/listen.2.html
+    status = listen(server_socket_fd, 5); // Setting an arbitrary backlog value of 5
+    if(status == -1) // 0 on success and -1 for error
+    {
+        printf("\nError: Failed listen(). Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed listen(). Error code: %d", errno);
+        return -1;
+    }
+
+    // Note:
+    // The socket here is listening to any IP of the machine at port 9000
+    // Refer to https://stackoverflow.com/questions/4046616/sockets-how-to-find-out-what-port-and-address-im-assigned
+    //      and https://stackoverflow.com/questions/212528/how-can-i-get-the-ip-address-of-a-linux-machine
+    // There could be two connections from 2 IPs and this port eill respond to both
+    // The below command will give the ports that are listening:
+    // sudo lsof -i -P -n
+    // It is noted that the port used here will not be tied to any specific IP and will display as *.9000
+    // Basically meaning that it is any IP with port 9000
+
+    printf("Listening.....\n");
+
+    /*********************************************************************************************************
+                                        Server Accepting Connection Requests
+    **********************************************************************************************************/
+    while(1)
+    {
+        int client_socket_fd;
+        struct sockaddr_in client_sock_addr;
+        socklen_t client_sock_addr_len = sizeof(client_sock_addr);
+        // The accept() system call is used with connection-based socket
+        // types (SOCK_STREAM, SOCK_SEQPACKET).  It extracts the first
+        // connection request on the queue of pending connections for the
+        // listening socket, sockfd, creates a new connected socket, and
+        // returns a new file descriptor referring to that socket.  The
+        // newly created socket is not in the listening state.  The original
+        // socket sockfd is unaffected by this call.
+        // If no pending connections are present on the queue, and the
+        // socket is not marked as nonblocking, accept() blocks the caller
+        // until a connection is present.  If the socket is marked
+        // nonblocking and no pending connections are present on the queue,
+        // accept() fails with the error EAGAIN or EWOULDBLOCK.
+        // int accept(int sockfd, struct sockaddr *restrict addr,
+        //            socklen_t *restrict addrlen);
+        // manpage: https://man7.org/linux/man-pages/man2/accept.2.html
+        client_socket_fd = accept(server_socket_fd, (struct sockaddr*) &client_sock_addr, &client_sock_addr_len);
+        if(client_socket_fd == -1) // -1 for error and file descriptor for success
+        {
+            printf("\nError: Failed accept(). Error code: %d\n", errno);
+            // Syslog the error into the syslog file in /var/log
+            syslog(LOG_ERR, "Error: Failed accept(). Error code: %d", errno);
+        }
+        
+
+        // The getsockname() returns the current address to which the socket
+        // sockfd is bound, in the buffer pointed to by addr.  The addrlen
+        // argument should be initialized to indicate the amount of space
+        // (in bytes) pointed to by addr.  On return it contains the actual
+        // size of the socket address.
+        // int getsockname(int sockfd, struct sockaddr *restrict addr,
+        //                 socklen_t *restrict addrlen);
+        // manpage: https://man7.org/linux/man-pages/man2/getsockname.2.html
+        struct sockaddr_in name;
+        socklen_t namelen = sizeof(name);
+        char buffer[20];
+        const char* p;
+        
+        //Printing the Server IP and Port number
+        getsockname(client_socket_fd, (struct sockaddr*) &name, &namelen);
+        
+        p = inet_ntop(AF_INET, &name.sin_addr, buffer, sizeof(buffer));
+        if(p != NULL) // Converts the IP in to a string to print
+        {
+            printf("Server ip is : %s :: %d \n" , inet_ntop(AF_INET, &name.sin_addr, buffer, sizeof(buffer)), htons(name.sin_port));
+        }
+
+        //Printing the Clinet IP and Port number
+        p = inet_ntop(AF_INET, &client_sock_addr.sin_addr, buffer, sizeof(buffer));
+        if(p != NULL) // Converts the IP in to a string to print
+        {
+            printf("Client ip is : %s :: %d \n" , inet_ntop(AF_INET, &client_sock_addr.sin_addr, buffer, sizeof(buffer)), htons(client_sock_addr.sin_port));
+        }
+        /*********************************************************************************************************
+                                        Receiving Data from client to server
+        **********************************************************************************************************/
+        // The recv() call is used to receive messages from a socket. They 
+        // may be used to receive data on both connectionless and 
+        // connection-oriented sockets.
+        // ssize_t recv(int sockfd, void *buf, size_t len, int flags);
+        // manpage: https://man7.org/linux/man-pages/man2/recv.2.html
+        char rx_buffer[100];
+        char *rx_storage_buffer = NULL;
+        int rx_storage_buffer_len = 0;
+        int i;
+        int rx_data_len;
+        bool packet_complete = false;
+        // This loop will continue to call recv until the packet is complete (\n terminated) 
+        // Rationale behind the order of conditions is so that if packet is complete then recv will not even execute
+        // changing the order will result in the code to spin and wait for data to be recieved when nothing is available
+        while( !packet_complete &&  (rx_data_len = recv(client_socket_fd, rx_buffer, sizeof(rx_buffer), 0))>0)
+        {
+            for(i=0; i<rx_data_len; ++i)
+            {   
+                // Looking for new line character
+                if(rx_buffer[i] == ASCII_NEWLINE)
+                {
+                    packet_complete = true;
+                    break;
+                }
+                
+            }
+            printf("value of i: %d\n", i);
+
+
+            if(rx_storage_buffer == NULL)
+            {
+                rx_storage_buffer = (char*)malloc(i);
+                if(rx_storage_buffer == NULL)
+                {
+                    printf("\nError: Failed malloc(). Error code: %d\n", errno);
+                    // Syslog the error into the syslog file in /var/log
+                    syslog(LOG_ERR, "Error: Failed malloc(). Error code: %d", errno);
+                    return -1;
+                }
+            }    
+            else
+            {printf("Here last2\n");
+                rx_storage_buffer = (char*) realloc(rx_storage_buffer, rx_storage_buffer_len+(i));
+                if(rx_storage_buffer == NULL)
+                {
+                    printf("\nError: Failed realloc(). Error code: %d\n", errno);
+                    // Syslog the error into the syslog file in /var/log
+                    syslog(LOG_ERR, "Error: Failed realloc(). Error code: %d", errno);
+                    free(rx_storage_buffer);
+                    return -1;
+                }
+            }
+            printf("Here last1\n");
+            memcpy(rx_storage_buffer+(rx_storage_buffer_len), rx_buffer, (i));
+            rx_storage_buffer_len += (i);
+        }
+
+        rx_storage_buffer = (char*) realloc(rx_storage_buffer, rx_storage_buffer_len+1);
+        if(rx_storage_buffer == NULL)
+        {
+            printf("\nError: Failed realloc(). Error code: %d\n", errno);
+            // Syslog the error into the syslog file in /var/log
+            syslog(LOG_ERR, "Error: Failed realloc(). Error code: %d", errno);
+            free(rx_storage_buffer);
+            return -1;
+        }
+
+        *(rx_storage_buffer+(rx_storage_buffer_len)) = '\n';
+        rx_storage_buffer_len++;
+
+        printf("Data Len Received: %d\n", rx_storage_buffer_len);
+        for(i=0;i<rx_storage_buffer_len;i++)
+        {
+            printf("%c", *(rx_storage_buffer+i));
+        }
+        printf("\n"); // It seems line the system was buffering the printf so absense of new line was making it buffer and printing only the next time new line was met
+        // Refer to https://stackoverflow.com/questions/39180642/why-does-printf-not-produce-any-output
+
+
+        /*********************************************************************************************************
+                                        Writing to file /var/tmp/aesdsocketdata
+        **********************************************************************************************************/
+        // write() writes up to count bytes from the buffer starting at buf
+        // to the file referred to by the file descriptor fd.
+        // ssize_t write(int fd, const void *buf, size_t count);
+        // manpage: https://man7.org/linux/man-pages/man2/write.2.html
+        int bytes_written = write(socket_file_fd, rx_storage_buffer, rx_storage_buffer_len);
+        if(bytes_written == -1) // returns -1 on error else number of bytes written
+        {
+            printf("\nError: Failed write(). Error code: %d\n", errno);
+            // Syslog the error into the syslog file in /var/log
+            syslog(LOG_ERR, "Error: Failed write(). Error code: %d", errno);
+            return -1;
+        }
+
+        // Updating the size of the file 
+        socket_file_fd_len += bytes_written;
+
+        /*********************************************************************************************************
+                                    Preparing to read from file /var/tmp/aesdsocketdata
+        **********************************************************************************************************/
+        // Setting the current file pointer to the start using lseek
+        // lseek() repositions the file offset of the open file description
+        // associated with the file descriptor fd to the argument offset
+        // according to the directive.
+        // off_t lseek(int fd, off_t offset, int whence);
+        // manpage: https://man7.org/linux/man-pages/man2/lseek.2.html
+        int offset = lseek(socket_file_fd, SEEK_SET, 0); // sets to the begining of the file
+        if(offset == -1) // returns -1 on error else number of bytes written
+        {
+            printf("\nError: Failed lseek(). Error code: %d\n", errno);
+            // Syslog the error into the syslog file in /var/log
+            syslog(LOG_ERR, "Error: lseek write(). Error code: %d", errno);
+            return -1;
+        }
+
+        // mallocing a buffer big enough to accomodate the entire file's data
+        char* tx_storage_buffer = (char*)malloc(socket_file_fd_len);
+
+        /*********************************************************************************************************
+                                        Reading from file /var/tmp/aesdsocketdata
+        **********************************************************************************************************/
+        // read() attempts to read up to count bytes from file descriptor fd
+        // into the buffer starting at buf.
+        // ssize_t read(int fd, void *buf, size_t count);
+        // manpage: https://man7.org/linux/man-pages/man2/read.2.html
+        int bytes_read = read(socket_file_fd, tx_storage_buffer, socket_file_fd_len);
+        if(bytes_read == -1) // returns -1 on error else number of bytes read
+        {
+            printf("\nError: Failed read(). Error code: %d\n", errno);
+            // Syslog the error into the syslog file in /var/log
+            syslog(LOG_ERR, "Error: Failed read(). Error code: %d", errno);
+            return -1;
+        }
+
+        printf("Data Len Transmitted: %d\n", socket_file_fd_len);
+        for(i=0;i<socket_file_fd_len;i++)
+        {
+            printf("%c", *(tx_storage_buffer+i));
+        }
+        printf("\n"); // It seems line the system was buffering the printf so absense of new line was making it buffer and printing only the next time new line was met
+        // Refer to https://stackoverflow.com/questions/39180642/why-does-printf-not-produce-any-output
+
+        /*********************************************************************************************************
+                                        Sending Data from server to client
+        **********************************************************************************************************/
+        // The system calls send(), sendto(), and sendmsg() are used to
+        // transmit a message to another socket.
+        // ssize_t send(int sockfd, const void *buf, size_t len, int flags);
+        // manpage: https://man7.org/linux/man-pages/man2/send.2.html
+        int tx_data_len;
+        tx_data_len = send(client_socket_fd, tx_storage_buffer, socket_file_fd_len, 0);
+        if(tx_data_len == -1) // returns -1 on error else number of bytes sent
+        {
+            printf("\nError: Failed send(). Error code: %d\n", errno);
+            // Syslog the error into the syslog file in /var/log
+            syslog(LOG_ERR, "Error: Failed send(). Error code: %d", errno);
+            return -1;
+        }
+
+
+    }
+
+    return 0;
+}
