@@ -4,6 +4,12 @@ This file contains the code for server design.
 Reference: https://beej.us/guide/bgnet/html/ 
 */
 
+
+// @ToDo:
+// 1. LOGINFO as per the assignment doc
+// 2. handle realloc differently the null pointer situation
+// 3. 1 memory leak still to be handled
+
 #include <stdio.h>
 #include <string.h>
 #include <syslog.h>
@@ -11,6 +17,7 @@ Reference: https://beej.us/guide/bgnet/html/
 #include <errno.h>
 #include <netdb.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
@@ -27,12 +34,149 @@ char socket_file_path[50] = "/var/tmp/aesdsocketdata";
 
 #define ASCII_NEWLINE 10
 
+int server_socket_fd;
+int client_socket_fd;
+int socket_file_fd;
+char* tx_storage_buffer = NULL;
+char* rx_storage_buffer = NULL;
+
+
+void sig_handler(int signum)
+{
+    int status;
+
+    if (signum == SIGINT)
+    {
+        printf("\nCaught signal SIGINT, exiting\n");
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_DEBUG, "Caught signal SIGINT, exiting");
+    }
+    else if (signum == SIGTERM)
+    {
+        printf("\nCaught signal SIGTERM, exiting\n");
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_DEBUG, "Caught signal SIGTERM, exiting");
+    }
+
+    free(rx_storage_buffer);
+    free(tx_storage_buffer);
+
+    // Closing all the socket file descriptors
+    // sudo lsof -i -P -n | grep LISTEN gives list of ports taht are listening
+    status = close(client_socket_fd);
+    if(status != 0) // returns 0 if it succeeds else -1 on error
+    {
+        printf("\nError: Failed close() the client_socket_fd. Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed close() the client_socket_fd. Error code: %d", errno);
+        exit(-1);
+    }
+
+    status = close(server_socket_fd);
+    if(status != 0) // returns 0 if it succeeds else -1 on error
+    {
+        printf("\nError: Failed close() the server_socket_fd. Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed close() the server_socket_fd. Error code: %d", errno);
+        exit(-1);
+    }
+
+    // Unlinking the socket_file_fd to delete it from file system
+    // unlink() deletes a name from the filesystem.  If that name was
+    // the last link to a file and no processes have the file open, the
+    // file is deleted and the space it was using is made available for
+    // reuse.
+    // int unlink(const char *pathname);
+    // manpage: https://man7.org/linux/man-pages/man2/unlink.2.html
+    status = unlink(socket_file_path);
+    if (status != 0)
+    {
+        printf("\nError: Failed unlink() the socket_file_fd. Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed unlink() the socket_file_fd. Error code: %d", errno);
+        exit(-1);
+    }
+
+    closelog();
+
+    printf("\nSuccessfully Cleaned Up!\n\nTerminating....\nSee you soon and go conquer the world...\n");
+    exit(0);
+}
+
+
+
+static int daemon_init()
+{
+    pid_t forked_pid;
+    int status;
+
+    /*********************************************************************************************************
+                                                Daemon Check
+    **********************************************************************************************************/
+    // fork() creates a new process by duplicating the calling process.
+    // The new process is referred to as the child process.  The calling
+    // process is referred to as the parent process.
+    // pid_t fork(void);
+    // manpage: https://man7.org/linux/man-pages/man2/fork.2.html
+    forked_pid = fork();
+    if (forked_pid == -1) // 0 on returned to the child, parent gets the child PID and -1 on error
+    {
+        printf("\nError: Failed fork(). Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed fork(). Error code: %d", errno);
+        return -1;
+    }
+    // If pork was successful then close parent process
+    else if (forked_pid != 0) // parent process executes this
+        exit(0);
+
+    // setsid() creates a new session if the calling process is not a
+    // process group leader.  The calling process is the leader of the
+    // new session (i.e., its session ID is made the same as its process
+    // ID).  The calling process also becomes the process group leader
+    // of a new process group in the session (i.e., its process group ID
+    // is made the same as its process ID).
+    // pid_t setsid(void);
+    // manpage: https://man7.org/linux/man-pages/man2/setsid.2.html
+    status = setsid();
+    if (status == -1) // Returns -1 on error and session ID success 
+    {
+        printf("\nError: Failed setsid(). Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed setsid(). Error code: %d", errno);
+        return -1;
+    }
+
+    // chdir() changes the current working directory of the calling
+    // process to the directory specified in path.
+    // int chdir(const char *path);
+    // manpage: https://man7.org/linux/man-pages/man2/chdir.2.html
+    status = chdir ("/"); // Changing directory to root
+    if (status == -1) // Returns -1 on error and 0 on success 
+    {
+        printf("\nError: Failed setsid(). Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed setsid(). Error code: %d", errno);
+        return -1;
+    }
+
+    // Redirecting the I/O files to NULL file so that the outputs dont come out to the users terminal
+    open ("/dev/null", O_RDWR);     // stdin
+    dup (0);                        // stdout
+    dup (0);                        // stderror
+
+    return 0;
+}
+
 int main (int argc, char** argv)
 {
     // Appends aesdsocket.c to all the logs by default t is the program name
     // LOG_PERROR also logs error to stderr
     // Sets the facility to USER
     openlog("aesdsocket.c", LOG_PERROR, LOG_USER);
+
+    signal(SIGINT, sig_handler); // Register signal handler for SIGINT
+    signal(SIGTERM, sig_handler); // Register signal handler for SIGTERM
 
     /*********************************************************************************************************
                             Creating or opening the file /var/tmp/aesdsocketdata
@@ -85,7 +229,7 @@ int main (int argc, char** argv)
     /*********************************************************************************************************
                                                 Server Setup
     **********************************************************************************************************/
-    int server_socket_fd;
+    
     int status;
     int option_value = 1; // Used in setsockopt()
 
@@ -195,6 +339,16 @@ int main (int argc, char** argv)
     // It is noted that the port used here will not be tied to any specific IP and will display as *.9000
     // Basically meaning that it is any IP with port 9000
 
+    if (run_as_daemon)
+    status = daemon_init();
+    if (status == -1)
+    {
+        printf("\nError: Failed init_daemon(). Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed init_daemon(). Error code: %d", errno);
+        return -1;
+    }
+
     printf("Listening.....\n");
 
     /*********************************************************************************************************
@@ -266,7 +420,6 @@ int main (int argc, char** argv)
         // ssize_t recv(int sockfd, void *buf, size_t len, int flags);
         // manpage: https://man7.org/linux/man-pages/man2/recv.2.html
         char rx_buffer[100];
-        char *rx_storage_buffer = NULL;
         int rx_storage_buffer_len = 0;
         int i;
         int rx_data_len;
@@ -286,8 +439,6 @@ int main (int argc, char** argv)
                 }
                 
             }
-            printf("value of i: %d\n", i);
-
 
             if(rx_storage_buffer == NULL)
             {
@@ -301,7 +452,7 @@ int main (int argc, char** argv)
                 }
             }    
             else
-            {printf("Here last2\n");
+            {
                 rx_storage_buffer = (char*) realloc(rx_storage_buffer, rx_storage_buffer_len+(i));
                 if(rx_storage_buffer == NULL)
                 {
@@ -312,7 +463,6 @@ int main (int argc, char** argv)
                     return -1;
                 }
             }
-            printf("Here last1\n");
             memcpy(rx_storage_buffer+(rx_storage_buffer_len), rx_buffer, (i));
             rx_storage_buffer_len += (i);
         }
@@ -377,7 +527,7 @@ int main (int argc, char** argv)
         }
 
         // mallocing a buffer big enough to accomodate the entire file's data
-        char* tx_storage_buffer = (char*)malloc(socket_file_fd_len);
+        tx_storage_buffer = (char*)malloc(socket_file_fd_len);
 
         /*********************************************************************************************************
                                         Reading from file /var/tmp/aesdsocketdata
@@ -419,6 +569,8 @@ int main (int argc, char** argv)
             syslog(LOG_ERR, "Error: Failed send(). Error code: %d", errno);
             return -1;
         }
+
+        // free(tx_storage_buffer);
 
 
     }
