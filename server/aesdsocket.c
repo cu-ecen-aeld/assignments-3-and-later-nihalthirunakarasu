@@ -37,7 +37,6 @@ char socket_file_path[50] = "/var/tmp/aesdsocketdata";
 int server_socket_fd;
 int client_socket_fd;
 int socket_file_fd;
-char* tx_storage_buffer = NULL;
 char* rx_storage_buffer = NULL;
 
 void sig_handler(int signum)
@@ -57,8 +56,8 @@ void sig_handler(int signum)
         syslog(LOG_DEBUG, "Caught signal SIGTERM, exiting");
     }
 
+    // Freeing the rx_storage_buffer
     free(rx_storage_buffer);
-    free(tx_storage_buffer);
 
     // Closing all the socket file descriptors
     // sudo lsof -i -P -n | grep LISTEN gives list of ports taht are listening
@@ -413,9 +412,9 @@ int main (int argc, char** argv)
         p = htons(name.sin_port);
         if(ip != NULL) // Converts the IP in to a string to print
         {
-            printf("Server ip is : %s :: %d \n" , ip, p);
+            printf("Server IP is : %s :: %d \n" , ip, p);
             // Syslog the info into the syslog file in /var/log
-            syslog(LOG_INFO, "Server ip is : %s :: %d \n" , ip, p);
+            syslog(LOG_INFO, "Server IP is : %s :: %d \n" , ip, p);
         }
 
         //Printing the Clinet IP and Port number
@@ -423,9 +422,9 @@ int main (int argc, char** argv)
         p =  htons(client_sock_addr.sin_port);
         if(ip != NULL) // Converts the IP in to a string to print
         {
-            printf("Client ip is : %s :: %d \n" , ip, p);
+            printf("Client IP is : %s :: %d \n" , ip, p);
             // Syslog the info into the syslog file in /var/log
-            syslog(LOG_INFO, "Client ip is : %s :: %d \n" , ip, p);
+            syslog(LOG_INFO, "Client IP is : %s :: %d \n" , ip, p);
         }
         /*********************************************************************************************************
                                         Receiving Data from client to server
@@ -550,7 +549,7 @@ int main (int argc, char** argv)
         }
 
         // mallocing a buffer big enough to accomodate the entire file's data
-        tx_storage_buffer = (char*)malloc(socket_file_fd_len);
+        char *tx_storage_buffer = (char*)malloc(socket_file_fd_len);
 
         /*********************************************************************************************************
                                         Reading from file /var/tmp/aesdsocketdata
@@ -595,13 +594,11 @@ int main (int argc, char** argv)
             return -1;
         }
 
-        // free(tx_storage_buffer);
+        free(tx_storage_buffer);
 
         printf("Connection Closed with %s :: %d\n", ip, p);
         // Syslog the info into the syslog file in /var/log
         syslog(LOG_INFO, "Connection Closed with %s :: %d\n", ip, p);
-
-
     }
 
     return 0;
