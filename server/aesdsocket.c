@@ -6,8 +6,6 @@ Reference: https://beej.us/guide/bgnet/html/
 
 
 // @ToDo:
-// 1. LOGINFO as per the assignment doc
-// 2. handle realloc differently the null pointer situation
 // 3. 1 memory leak still to be handled
 
 #include <stdio.h>
@@ -30,16 +28,17 @@ Reference: https://beej.us/guide/bgnet/html/
 
 #include <unistd.h>
 
-char socket_file_path[50] = "/var/tmp/aesdsocketdata";
-
+#define DEBUG 0
 #define ASCII_NEWLINE 10
+#define PORT_NUMBER 9000
+
+char socket_file_path[50] = "/var/tmp/aesdsocketdata";
 
 int server_socket_fd;
 int client_socket_fd;
 int socket_file_fd;
 char* tx_storage_buffer = NULL;
 char* rx_storage_buffer = NULL;
-
 
 void sig_handler(int signum)
 {
@@ -100,10 +99,10 @@ void sig_handler(int signum)
     closelog();
 
     printf("\nSuccessfully Cleaned Up!\n\nTerminating....\nSee you soon and go conquer the world...\n");
+
+    syslog(LOG_INFO, "AESDSOCKET program terminated!!");
     exit(0);
 }
-
-
 
 static int daemon_init()
 {
@@ -177,6 +176,8 @@ int main (int argc, char** argv)
 
     signal(SIGINT, sig_handler); // Register signal handler for SIGINT
     signal(SIGTERM, sig_handler); // Register signal handler for SIGTERM
+
+    char* temp;
 
     /*********************************************************************************************************
                             Creating or opening the file /var/tmp/aesdsocketdata
@@ -254,6 +255,7 @@ int main (int argc, char** argv)
     // manpage: https://man7.org/linux/man-pages/man3/getaddrinfo.3.html
     struct addrinfo hints;
     struct addrinfo *server_info;
+    char temp_str[20];
 
     memset(&hints, 0, sizeof(hints));    // Seting the struct to 0
     hints.ai_family = AF_UNSPEC;        // Dont care if it is a IPv4 or IPv6
@@ -261,7 +263,8 @@ int main (int argc, char** argv)
     hints.ai_flags = AI_PASSIVE;        // Fill my IP for me
 
     // if((status = getaddrinfo(NULL, "9000", &hints, &server_info)) != 0)
-    status = getaddrinfo(NULL, "9000", &hints, &server_info);
+    sprintf(temp_str, "%d", PORT_NUMBER);         // To convert the PORT_NUMBER into a string
+    status = getaddrinfo(NULL, temp_str, &hints, &server_info);
     if(status != 0) // returns 0 if it succeeds or error codes 
     {
         printf("\nError: Failed getaddrinfo(). Error code: %d\n", errno);
@@ -350,6 +353,9 @@ int main (int argc, char** argv)
     }
 
     printf("Listening.....\n");
+    printf("\nListening on port: %d\n", PORT_NUMBER);
+    // Syslog the info into the syslog file in /var/log
+    syslog(LOG_INFO, "Listening on port: %d", PORT_NUMBER);
 
     /*********************************************************************************************************
                                         Server Accepting Connection Requests
@@ -383,6 +389,10 @@ int main (int argc, char** argv)
         }
         
 
+        printf("\n\nNew Connection accepted\n");
+        // Syslog the info into the syslog file in /var/log
+        syslog(LOG_INFO, "New connection accepted");
+
         // The getsockname() returns the current address to which the socket
         // sockfd is bound, in the buffer pointed to by addr.  The addrlen
         // argument should be initialized to indicate the amount of space
@@ -394,22 +404,28 @@ int main (int argc, char** argv)
         struct sockaddr_in name;
         socklen_t namelen = sizeof(name);
         char buffer[20];
-        const char* p;
+        const char* ip;
+        int p;
         
         //Printing the Server IP and Port number
         getsockname(client_socket_fd, (struct sockaddr*) &name, &namelen);
-        
-        p = inet_ntop(AF_INET, &name.sin_addr, buffer, sizeof(buffer));
-        if(p != NULL) // Converts the IP in to a string to print
+        ip = inet_ntop(AF_INET, &name.sin_addr, buffer, sizeof(buffer));
+        p = htons(name.sin_port);
+        if(ip != NULL) // Converts the IP in to a string to print
         {
-            printf("Server ip is : %s :: %d \n" , inet_ntop(AF_INET, &name.sin_addr, buffer, sizeof(buffer)), htons(name.sin_port));
+            printf("Server ip is : %s :: %d \n" , ip, p);
+            // Syslog the info into the syslog file in /var/log
+            syslog(LOG_INFO, "Server ip is : %s :: %d \n" , ip, p);
         }
 
         //Printing the Clinet IP and Port number
-        p = inet_ntop(AF_INET, &client_sock_addr.sin_addr, buffer, sizeof(buffer));
-        if(p != NULL) // Converts the IP in to a string to print
+        ip = inet_ntop(AF_INET, &client_sock_addr.sin_addr, buffer, sizeof(buffer));
+        p =  htons(client_sock_addr.sin_port);
+        if(ip != NULL) // Converts the IP in to a string to print
         {
-            printf("Client ip is : %s :: %d \n" , inet_ntop(AF_INET, &client_sock_addr.sin_addr, buffer, sizeof(buffer)), htons(client_sock_addr.sin_port));
+            printf("Client ip is : %s :: %d \n" , ip, p);
+            // Syslog the info into the syslog file in /var/log
+            syslog(LOG_INFO, "Client ip is : %s :: %d \n" , ip, p);
         }
         /*********************************************************************************************************
                                         Receiving Data from client to server
@@ -453,8 +469,9 @@ int main (int argc, char** argv)
             }    
             else
             {
-                rx_storage_buffer = (char*) realloc(rx_storage_buffer, rx_storage_buffer_len+(i));
-                if(rx_storage_buffer == NULL)
+                // Will store into temp and then store after sanity check so that the original pointer is not lost
+                temp = (char*) realloc(rx_storage_buffer, rx_storage_buffer_len+(i));
+                if(temp == NULL)
                 {
                     printf("\nError: Failed realloc(). Error code: %d\n", errno);
                     // Syslog the error into the syslog file in /var/log
@@ -462,13 +479,16 @@ int main (int argc, char** argv)
                     free(rx_storage_buffer);
                     return -1;
                 }
+                else
+                    rx_storage_buffer = temp;
             }
             memcpy(rx_storage_buffer+(rx_storage_buffer_len), rx_buffer, (i));
             rx_storage_buffer_len += (i);
         }
 
-        rx_storage_buffer = (char*) realloc(rx_storage_buffer, rx_storage_buffer_len+1);
-        if(rx_storage_buffer == NULL)
+        // Will store into temp and then store after sanity check so that the original pointer is not lost
+        temp = (char*) realloc(rx_storage_buffer, rx_storage_buffer_len+1);
+        if(temp == NULL)
         {
             printf("\nError: Failed realloc(). Error code: %d\n", errno);
             // Syslog the error into the syslog file in /var/log
@@ -476,10 +496,13 @@ int main (int argc, char** argv)
             free(rx_storage_buffer);
             return -1;
         }
+        else
+            rx_storage_buffer = temp;
 
         *(rx_storage_buffer+(rx_storage_buffer_len)) = '\n';
         rx_storage_buffer_len++;
 
+#if DEBUG
         printf("Data Len Received: %d\n", rx_storage_buffer_len);
         for(i=0;i<rx_storage_buffer_len;i++)
         {
@@ -487,7 +510,7 @@ int main (int argc, char** argv)
         }
         printf("\n"); // It seems line the system was buffering the printf so absense of new line was making it buffer and printing only the next time new line was met
         // Refer to https://stackoverflow.com/questions/39180642/why-does-printf-not-produce-any-output
-
+#endif
 
         /*********************************************************************************************************
                                         Writing to file /var/tmp/aesdsocketdata
@@ -545,6 +568,7 @@ int main (int argc, char** argv)
             return -1;
         }
 
+#if DEBUG
         printf("Data Len Transmitted: %d\n", socket_file_fd_len);
         for(i=0;i<socket_file_fd_len;i++)
         {
@@ -552,6 +576,7 @@ int main (int argc, char** argv)
         }
         printf("\n"); // It seems line the system was buffering the printf so absense of new line was making it buffer and printing only the next time new line was met
         // Refer to https://stackoverflow.com/questions/39180642/why-does-printf-not-produce-any-output
+#endif
 
         /*********************************************************************************************************
                                         Sending Data from server to client
@@ -571,6 +596,10 @@ int main (int argc, char** argv)
         }
 
         // free(tx_storage_buffer);
+
+        printf("Connection Closed with %s :: %d\n", ip, p);
+        // Syslog the info into the syslog file in /var/log
+        syslog(LOG_INFO, "Connection Closed with %s :: %d\n", ip, p);
 
 
     }
