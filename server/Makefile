@@ -12,13 +12,13 @@ CFILES=aesdsocket.c
 SRCS= ${HFILES} ${CFILES}
 OBJS= ${CFILES:.c=.o}
 
-all:    aesdsocket
+all:aesdsocket
 
 clean:
 	-rm -f *.o *.d
 	-rm -f aesdsocket
 
-aesdsocket: aesdsocket.o
+aesdsocket:aesdsocket.o
 	$(CC) $(LDFLAGS) $(CFLAGS) -o $@ $@.o 
 
 depend:

@@ -4,9 +4,9 @@ This file contains the code for server design.
 Reference: https://beej.us/guide/bgnet/html/ 
 */
 
+// ToDo;
+// Try to make both buffers local anf free them
 
-// @ToDo:
-// 3. 1 memory leak still to be handled
 
 #include <stdio.h>
 #include <string.h>
@@ -16,17 +16,14 @@ Reference: https://beej.us/guide/bgnet/html/
 #include <netdb.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <linux/fs.h>
-
-
 #include <sys/stat.h>
-#include <fcntl.h>
-
-#include <unistd.h>
 
 #define DEBUG 0
 #define ASCII_NEWLINE 10
