@@ -21,7 +21,7 @@ case "$1" in
 
     echo "Usage: $0{start|stop}"
 
-    exit (1)
+    exit 1
 esac
 
-exit (0)
+exit 0
