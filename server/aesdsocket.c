@@ -254,7 +254,7 @@ int main (int argc, char** argv)
     char temp_str[20];
 
     memset(&hints, 0, sizeof(hints));    // Seting the struct to 0
-    hints.ai_family = AF_UNSPEC;        // Dont care if it is a IPv4 or IPv6
+    hints.ai_family = AF_INET;          // Only IPv4 support
     hints.ai_socktype = SOCK_STREAM;    // TCP stram sockets
     hints.ai_flags = AI_PASSIVE;        // Fill my IP for me
 
