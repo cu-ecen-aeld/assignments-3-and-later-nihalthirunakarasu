@@ -7,6 +7,7 @@ Reference: https://beej.us/guide/bgnet/html/
 // ToDo;
 // Try to make both buffers local anf free them
 
+#define _GNU_SOURCE
 
 #include <stdio.h>
 #include <string.h>
@@ -18,12 +19,15 @@ Reference: https://beej.us/guide/bgnet/html/
 #include <signal.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <time.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <linux/fs.h>
 #include <sys/stat.h>
+
+
 
 #define DEBUG 0
 #define ASCII_NEWLINE 10
@@ -36,22 +40,148 @@ int client_socket_fd;
 int socket_file_fd;
 char* rx_storage_buffer = NULL;
 
-void sig_handler(int signum)
+bool kill_program = false;
+
+timer_t timer_id;;
+
+void print_cal()
 {
     int status;
 
+    time_t rawtime;
+    struct tm *walltime;
+    char buffer[80];
+
+    // // time() returns the time as the number of seconds since the Epoch,
+    // // 1970-01-01 00:00:00 +0000 (UTC).
+    // // time_t time(time_t *tloc);
+    // // manpage: https://man7.org/linux/man-pages/man2/time.2.html
+    status = time( &rawtime );
+    if (status == -1) // Returns -1 on error and epoch success 
+    {
+        printf("\nError: Failed setsid(). Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed setsid(). Error code: %d", errno);
+        exit (EXIT_FAILURE);;
+    }
+    
+    // The localtime() function shall convert the time in seconds since
+    // the Epoch pointed to by timer into a broken-down time, expressed
+    // as a local time. The function corrects for the timezone and any
+    // seasonal time adjustments. 
+    // struct tm *localtime(const time_t *timep);
+    // manpage: https://man7.org/linux/man-pages/man3/localtime.3p.html
+    walltime = localtime( &rawtime );
+    if (walltime == NULL) // Returns NULL on error 
+    {
+        printf("\nError: Failed localtime(). Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed localtime(). Error code: %d", errno);
+        exit (EXIT_FAILURE);
+    }
+
+    // year, month, day, hour (in 24 hour format) minute and second representing the system wall clock time
+    strftime(buffer,80,"Timestamp: %Y/%m/%d, %A, %H:%M:%S %Z", walltime);
+
+    syslog(LOG_DEBUG, "%s", buffer);
+}
+
+void sig_handler(int signum)
+{
     if (signum == SIGINT)
     {
         printf("\nCaught signal SIGINT, exiting\n");
+
         // Syslog the error into the syslog file in /var/log
         syslog(LOG_DEBUG, "Caught signal SIGINT, exiting");
+
+        // Flag to kill the program
+        kill_program = true;
     }
     else if (signum == SIGTERM)
     {
         printf("\nCaught signal SIGTERM, exiting\n");
+
         // Syslog the error into the syslog file in /var/log
         syslog(LOG_DEBUG, "Caught signal SIGTERM, exiting");
+
+        // Flag to kill the program
+        kill_program = true;
     }
+    else if (signum == SIGALRM)
+    {
+        print_cal();
+    }
+}
+
+void sig_init()
+{
+    int status;
+    // The sigaction() system call is used to change the action taken by
+    // a process on receipt of a specific signal.  (See signal(7) for an
+    // overview of signals.)
+    // int sigaction(int signum, const struct sigaction *restrict act,
+    //               struct sigaction *restrict oldact);
+    // struct sigaction 
+    // {
+    //     void     (*sa_handler)(int);
+    //     void     (*sa_sigaction)(int, siginfo_t *, void *);
+    //     sigset_t   sa_mask;
+    //     int        sa_flags;
+    //     void     (*sa_restorer)(void);
+    // };
+    // manpage: https://man7.org/linux/man-pages/man2/sigaction.2.html
+    struct sigaction act;
+    memset(&act, 0, sizeof(act));
+
+
+    // The sigfillset() function shall initialize the signal set pointed
+    // to by set, such that all signals defined in this volume of
+    // POSIX.1‐2017 are included.
+    // int sigfillset(sigset_t *set);
+    // manpage: https://man7.org/linux/man-pages/man3/sigfillset.3p.html
+    status = sigfillset(&act.sa_mask);
+    if (status == -1) // 0 on returned to the child, parent gets the child PID and -1 on error
+    {
+        printf("\nError: Failed sigfillset(). Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed sigfillset(). Error code: %d", errno);
+        exit (EXIT_FAILURE);
+    }
+
+
+    // Directing the signal actions to sig_handler()
+    act.sa_handler = &sig_handler;
+    act.sa_flags = 0;
+
+    if(sigaction(SIGINT, &act, NULL) == -1)
+	{
+        printf("\nError: Failed sigfillset(). Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed sigfillset(). Error code: %d", errno);
+        exit (EXIT_FAILURE);
+    }
+
+    if (sigaction(SIGTERM, &act, NULL) == -1)
+    {
+        printf("\nError: Failed sigfillset(). Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed sigfillset(). Error code: %d", errno);
+        exit (EXIT_FAILURE);
+    }
+
+    if (sigaction(SIGALRM, &act, NULL) == -1)
+    {
+        printf("\nError: Failed sigfillset(). Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed sigfillset(). Error code: %d", errno);
+        exit (EXIT_FAILURE);
+    }
+}
+
+void program_kill_clean_up()
+{
+    int status;
 
     // Freeing the rx_storage_buffer
     free(rx_storage_buffer);
@@ -92,9 +222,11 @@ void sig_handler(int signum)
         exit(-1);
     }
 
+    timer_delete(timer_id);
+
     closelog();
 
-    printf("\nSuccessfully Cleaned Up!\n\nTerminating....\nSee you soon and go conquer the world...\n");
+    printf("\n\nSuccessfully Cleaned Up!\nTerminating....\n\nSee you soon and go conquer the world...\n");
 
     syslog(LOG_INFO, "AESDSOCKET program terminated!!");
     exit(0);
@@ -163,6 +295,68 @@ static int daemon_init()
     return 0;
 }
 
+void timer_init()
+{
+    int status;
+
+    // timer_create() creates a new per-process interval timer.  The ID
+    // of the new timer is returned in the buffer pointed to by timerid,
+    // which must be a non-null pointer.  This ID is unique within the
+    // process, until the timer is deleted.  The new timer is initially
+    // disarmed.
+    // int timer_create(clockid_t clockid, struct sigevent *restrict sevp,
+    //                  timer_t *restrict timerid);
+    // manpage: https://man7.org/linux/man-pages/man2/timer_create.2.html
+    
+    status = timer_create(CLOCK_MONOTONIC, NULL, &timer_id); 
+    if (status == -1) // Returns -1 on error and 0 on success 
+    {
+        printf("\nError: Failed timer_create(). Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed timer_create(). Error code: %d", errno);
+        exit (EXIT_FAILURE);
+    }
+
+    // timer_settime() arms or disarms the timer identified by timerid.
+    // The new_value argument is pointer to an itimerspec structure that
+    // specifies the new initial value and the new interval for the
+    // timer.
+    // int timer_settime(timer_t timerid, int flags,
+    //                   const struct itimerspec *restrict new_value,
+    //                   struct itimerspec *restrict old_value);
+    // manpage: https://man7.org/linux/man-pages/man2/timer_settime.2.html
+    struct itimerspec timer_spec;
+    timer_spec.it_value.tv_sec = 10; // 10 seconds delay 
+    timer_spec.it_value.tv_nsec = 0; // 0 nano-seconds delay 
+    timer_spec.it_interval.tv_sec = 10; // 10 seconds interval
+    timer_spec.it_interval.tv_nsec = 0; // 0 nano-seconds interval 
+    status = timer_settime(timer_id, CLOCK_MONOTONIC, &timer_spec, NULL); 
+    if (status == -1) // Returns -1 on error and 0 on success 
+    {
+        printf("\nError: Failed timer_create(). Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed timer_create(). Error code: %d", errno);
+        exit (EXIT_FAILURE);
+    }
+}
+
+typedef struct
+{
+    thread_data_t data;
+    node* next_node;
+} node_t;
+
+typedef struct 
+{
+    int client_socket_fd;
+} thread_data_t
+
+void *thread_func(void *thread_arg)
+{
+
+}
+
+
 int main (int argc, char** argv)
 {
     // Appends aesdsocket.c to all the logs by default t is the program name
@@ -170,8 +364,11 @@ int main (int argc, char** argv)
     // Sets the facility to USER
     openlog("aesdsocket.c", LOG_PERROR, LOG_USER);
 
-    signal(SIGINT, sig_handler); // Register signal handler for SIGINT
-    signal(SIGTERM, sig_handler); // Register signal handler for SIGTERM
+    // Initializing signals and their respective signal handlers
+    sig_init();
+
+    // Initializing the timer
+    timer_init();
 
     char* temp;
 
@@ -233,7 +430,8 @@ int main (int argc, char** argv)
     // Creating an end point for communication (i.e. socket)
     // int socket(int domain, int type, int protocol);
     // manpage: https://man7.org/linux/man-pages/man2/socket.2.html 
-    server_socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+    // Setting SOCK_NONBLOCK enables to use the accept4 or make the socket non block to check for kill_program flag
+    server_socket_fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0); 
     if (server_socket_fd == -1) // 0 on success and -1 for error
     {
         printf("\nError: Failed socket(). Error code: %d\n", errno);
@@ -356,7 +554,7 @@ int main (int argc, char** argv)
     /*********************************************************************************************************
                                         Server Accepting Connection Requests
     **********************************************************************************************************/
-    while(1)
+    while(!kill_program)
     {
         int client_socket_fd;
         struct sockaddr_in client_sock_addr;
@@ -373,17 +571,29 @@ int main (int argc, char** argv)
         // until a connection is present.  If the socket is marked
         // nonblocking and no pending connections are present on the queue,
         // accept() fails with the error EAGAIN or EWOULDBLOCK.
+        // If flags is 0, then accept4() is the same as accept().
         // int accept(int sockfd, struct sockaddr *restrict addr,
         //            socklen_t *restrict addrlen);
+        // int accept4(int sockfd, struct sockaddr *restrict addr,
+        //            socklen_t *restrict addrlen, int flags);
         // manpage: https://man7.org/linux/man-pages/man2/accept.2.html
         client_socket_fd = accept(server_socket_fd, (struct sockaddr*) &client_sock_addr, &client_sock_addr_len);
         if(client_socket_fd == -1) // -1 for error and file descriptor for success
         {
+            if (errno == EINTR)
+            {
+                continue;
+            }
+            else if ((errno == EAGAIN) || (errno == EWOULDBLOCK))
+            {
+                continue;
+            }
             printf("\nError: Failed accept(). Error code: %d\n", errno);
             // Syslog the error into the syslog file in /var/log
             syslog(LOG_ERR, "Error: Failed accept(). Error code: %d", errno);
         }
         
+        // node_t *new_node = (node*)
 
         printf("\n\nNew Connection accepted\n");
         // Syslog the info into the syslog file in /var/log
@@ -597,6 +807,8 @@ int main (int argc, char** argv)
         // Syslog the info into the syslog file in /var/log
         syslog(LOG_INFO, "Connection Closed with %s :: %d\n", ip, p);
     }
+
+    program_kill_clean_up();
 
     return 0;
 }
