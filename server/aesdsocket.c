@@ -38,6 +38,8 @@ char socket_file_path[50] = "/var/tmp/aesdsocketdata";
 bool kill_program = false;
 bool print_call_program = false;
 
+int socket_file_fd;
+
 timer_t timer_id;
 
 pthread_mutex_t mutex;
@@ -49,26 +51,29 @@ struct clean_up_data
     char* rx_storage_buff;
 };
 
-void print_cal(int file_fd)
+void print_cal()
 {
     int status;
 
-    time_t rawtime;
-    struct tm *walltime;
-    char buffer[60] = {0};
+    // time_t rawtime;
+    // struct tm *walltime;
+    char buffer[80] = {0};
 
-    // // time() returns the time as the number of seconds since the Epoch,
-    // // 1970-01-01 00:00:00 +0000 (UTC).
-    // // time_t time(time_t *tloc);
-    // // manpage: https://man7.org/linux/man-pages/man2/time.2.html
-    status = time( &rawtime );
-    if (status == -1) // Returns -1 on error and epoch success 
-    {
-        printf("\nError: Failed setsid(). Error code: %d\n", errno);
-        // Syslog the error into the syslog file in /var/log
-        syslog(LOG_ERR, "Error: Failed setsid(). Error code: %d", errno);
-        exit (EXIT_FAILURE);;
-    }
+    time_t now = time(NULL);
+    struct tm *walltime = localtime(&now);
+
+    // // // time() returns the time as the number of seconds since the Epoch,
+    // // // 1970-01-01 00:00:00 +0000 (UTC).
+    // // // time_t time(time_t *tloc);
+    // // // manpage: https://man7.org/linux/man-pages/man2/time.2.html
+    // status = time( &rawtime );
+    // if (status == -1) // Returns -1 on error and epoch success 
+    // {
+    //     printf("\nError: Failed setsid(). Error code: %d\n", errno);
+    //     // Syslog the error into the syslog file in /var/log
+    //     syslog(LOG_ERR, "Error: Failed setsid(). Error code: %d", errno);
+    //     exit (EXIT_FAILURE);;
+    // }
     
     // The localtime() function shall convert the time in seconds since
     // the Epoch pointed to by timer into a broken-down time, expressed
@@ -76,7 +81,8 @@ void print_cal(int file_fd)
     // seasonal time adjustments. 
     // struct tm *localtime(const time_t *timep);
     // manpage: https://man7.org/linux/man-pages/man3/localtime.3p.html
-    walltime = localtime( &rawtime );
+    // walltime = localtime( &rawtime );
+    walltime = localtime( &now );
     if (walltime == NULL) // Returns NULL on error 
     {
         printf("\nError: Failed localtime(). Error code: %d\n", errno);
@@ -86,8 +92,8 @@ void print_cal(int file_fd)
     }
 
     // // year, month, day, hour (in 24 hour format) minute and second representing the system wall clock time
-    strftime(buffer,60,"Timestamp: %Y/%m/%d, %A, %H:%M:%S %Z\n", walltime);
-    // sprintf(write_buffer, "timestamp:%s\n", time_buffer);
+    strftime(buffer,sizeof(buffer),"timestamp:%Y-%m-%d %H:%M:%S\n", walltime);
+    // sprintf(write_buffer, "timestamp:%s\n", buffer);
 
     // The mutex object referenced by mutex shall be locked by a call to
     // pthread_mutex_lock() that returns zero or [EOWNERDEAD].  If the
@@ -104,9 +110,7 @@ void print_cal(int file_fd)
         // return -1;
     }
 
-    printf("\n\nSize: %ld\n\n",lseek(file_fd, 0, SEEK_END));
-
-    int bytes_written = write(file_fd, buffer, sizeof(buffer));
+    int bytes_written = write(socket_file_fd, buffer, strlen(buffer));
     if(bytes_written == -1) // returns -1 on error else number of bytes written
     {
         printf("\nError: Failed write(). Error code: %d\n", errno);
@@ -129,10 +133,9 @@ void print_cal(int file_fd)
         syslog(LOG_ERR, "Error: Failed pthread_mutex_unlock(). Error code: %d", errno);
         // return -1;
     }
-
-    syslog(LOG_ERR, "%s", buffer);
-
     print_call_program = false;
+
+    printf("%s", buffer);
 }
 
 void sig_handler(int signum)
@@ -233,19 +236,16 @@ void program_kill_clean_up(struct clean_up_data data)
 {
     int status;
 
-    // Freeing the rx_storage_buffer
-    free(data.rx_storage_buff);
-
-    // Closing all the socket file descriptors
-    // sudo lsof -i -P -n | grep LISTEN gives list of ports taht are listening
-    status = close(data.client_soc_fd);
-    if(status != 0) // returns 0 if it succeeds else -1 on error
-    {
-        printf("\nError: Failed close() the client_socket_fd. Error code: %d\n", errno);
-        // Syslog the error into the syslog file in /var/log
-        syslog(LOG_ERR, "Error: Failed close() the client_socket_fd. Error code: %d", errno);
-        // exit(-1);
-    }
+    // // Closing all the socket file descriptors
+    // // sudo lsof -i -P -n | grep LISTEN gives list of ports taht are listening
+    // status = close(data.client_soc_fd);
+    // if(status != 0) // returns 0 if it succeeds else -1 on error
+    // {
+    //     printf("\nError: Failed close() the client_socket_fd. Error code: %d\n", errno);
+    //     // Syslog the error into the syslog file in /var/log
+    //     syslog(LOG_ERR, "Error: Failed close() the client_socket_fd. Error code: %d", errno);
+    //     // exit(-1);
+    // }
 
     status = close(data.server_soc_fd);
     if(status != 0) // returns 0 if it succeeds else -1 on error
@@ -272,7 +272,7 @@ void program_kill_clean_up(struct clean_up_data data)
         exit(-1);
     }
 
-    timer_delete(timer_id);
+    // timer_delete(timer_id);
 
     closelog();
 
@@ -395,10 +395,9 @@ typedef struct
 {
     int client_socket_fd;
     bool thread_complete;
-    int *socket_file_fd;
     struct sockaddr_in client_sock_addr;
-    int *socket_file_fd_len;
     pthread_t thread_id;
+    char* rx_storage_buffer;
 } thread_data_t;
 
 typedef struct node_s
@@ -413,8 +412,7 @@ void *thread_func(void *arg)
 
     int client_socket_fd = thread_arg->client_socket_fd;
     struct sockaddr_in client_sock_addr = thread_arg->client_sock_addr;
-    int * socket_file_fd = thread_arg->socket_file_fd;
-    int * socket_file_fd_len = thread_arg->socket_file_fd_len;
+    int socket_file_fd_len;
     int file_data_size = 0;
 
     printf("\n\nNew Connection accepted\n");
@@ -554,6 +552,7 @@ void *thread_func(void *arg)
         // Syslog the error into the syslog file in /var/log
         syslog(LOG_ERR, "Error: Failed pthread_mutex_lock(). Error code: %d", errno);
         // return -1;
+        goto err_handle;
     }
 
     /*********************************************************************************************************
@@ -563,28 +562,31 @@ void *thread_func(void *arg)
     // to the file referred to by the file descriptor fd.
     // ssize_t write(int fd, const void *buf, size_t count);
     // manpage: https://man7.org/linux/man-pages/man2/write.2.html
-    int bytes_written = write(*socket_file_fd, rx_storage_buffer, rx_storage_buffer_len);
+    int bytes_written = write(socket_file_fd, rx_storage_buffer, rx_storage_buffer_len);
     if(bytes_written == -1) // returns -1 on error else number of bytes written
     {
         printf("\nError: Failed write(). Error code: %d\n", errno);
         // Syslog the error into the syslog file in /var/log
         syslog(LOG_ERR, "Error: Failed write(). Error code: %d", errno);
         // return -1;
+        goto err_handle;
     }
 
+    off_t offset;
     // Setting the current file pointer to the start using lseek
     // lseek() repositions the file offset of the open file description
     // associated with the file descriptor fd to the argument offset
     // according to the directive.
     // off_t lseek(int fd, off_t offset, int whence);
     // manpage: https://man7.org/linux/man-pages/man2/lseek.2.html
-    off_t offset = lseek(*socket_file_fd, SEEK_END, 0); // sets to the begining of the file
+    offset = lseek(socket_file_fd, 0, SEEK_END); // sets to the begining of the file
     if(offset == -1) // returns -1 on error else number of bytes written
     {
         printf("\nError: Failed lseek(). Error code: %d\n", errno);
         // Syslog the error into the syslog file in /var/log
         syslog(LOG_ERR, "Error: lseek write(). Error code: %d", errno);
         // return -1;
+        goto err_handle;
     }
 
     /*********************************************************************************************************
@@ -596,19 +598,22 @@ void *thread_func(void *arg)
     // according to the directive.
     // off_t lseek(int fd, off_t offset, int whence);
     // manpage: https://man7.org/linux/man-pages/man2/lseek.2.html
-    file_data_size = lseek(*socket_file_fd, SEEK_SET, 0); // sets to the begining of the file
+    file_data_size = lseek(socket_file_fd, 0, SEEK_SET); // sets to the begining of the file
     if(file_data_size == -1) // returns -1 on error else number of bytes written
     {
         printf("\nError: Failed lseek(). Error code: %d\n", errno);
         // Syslog the error into the syslog file in /var/log
         syslog(LOG_ERR, "Error: lseek write(). Error code: %d", errno);
         // return -1;
+        goto err_handle;
     }
-*socket_file_fd_len += bytes_written;
-    printf("\nBytes written %ld\n", offset);
-    printf("\nBytes written %d\n", *socket_file_fd_len);
+    socket_file_fd_len = offset;
     // mallocing a buffer big enough to accomodate the entire file's data
-    char *tx_storage_buffer = (char*)malloc(*socket_file_fd_len);
+    char *tx_storage_buffer = (char*)malloc(socket_file_fd_len);
+    if(!tx_storage_buffer)
+    {
+        goto err_handle;
+    }
 
     /*********************************************************************************************************
                                     Reading from file /var/tmp/aesdsocketdata
@@ -617,18 +622,19 @@ void *thread_func(void *arg)
     // into the buffer starting at buf.
     // ssize_t read(int fd, void *buf, size_t count);
     // manpage: https://man7.org/linux/man-pages/man2/read.2.html
-    int bytes_read = read(*socket_file_fd, tx_storage_buffer, *socket_file_fd_len);
+    int bytes_read = read(socket_file_fd, tx_storage_buffer, socket_file_fd_len);
     if(bytes_read == -1) // returns -1 on error else number of bytes read
     {
         printf("\nError: Failed read(). Error code: %d\n", errno);
         // Syslog the error into the syslog file in /var/log
         syslog(LOG_ERR, "Error: Failed read(). Error code: %d", errno);
         // return -1;
+        goto err_handle;
     }
 
 #if DEBUG
-    printf("Data Len Transmitted: %d\n", *socket_file_fd_len);
-    for(i=0;i<*socket_file_fd_len;i++)
+    printf("Data Len Transmitted: %d\n", socket_file_fd_len);
+    for(i=0;i<socket_file_fd_len;i++)
     {
         printf("%c", *(tx_storage_buffer+i));
     }
@@ -644,13 +650,14 @@ void *thread_func(void *arg)
     // ssize_t send(int sockfd, const void *buf, size_t len, int flags);
     // manpage: https://man7.org/linux/man-pages/man2/send.2.html
     int tx_data_len;
-    tx_data_len = send(client_socket_fd, tx_storage_buffer, *socket_file_fd_len, 0);
+    tx_data_len = send(client_socket_fd, tx_storage_buffer, socket_file_fd_len, 0);
     if(tx_data_len == -1) // returns -1 on error else number of bytes sent
     {
         printf("\nError: Failed send(). Error code: %d\n", errno);
         // Syslog the error into the syslog file in /var/log
         syslog(LOG_ERR, "Error: Failed send(). Error code: %d", errno);
         // return -1;
+        goto err_handle;
     }
 
     // The mutex object referenced by mutex shall be locked by a call to
@@ -668,11 +675,15 @@ void *thread_func(void *arg)
         // return -1;
     }
 
+err_handle:
     free(tx_storage_buffer);
+    free(rx_storage_buffer);
 
     printf("Connection Closed with %s :: %d\n", ip, p);
     // Syslog the info into the syslog file in /var/log
     syslog(LOG_INFO, "Connection Closed with %s :: %d\n", ip, p);
+
+    thread_arg->thread_complete = true;
 
     return NULL;
 }
@@ -684,6 +695,47 @@ void ll_push(node_t **head_ref, node_t *node)
     *head_ref = node;
 }
 
+void clean_ll(node_t* head)
+{
+printf("1\n");
+    while(head!=NULL)
+    {
+        printf("2\n");
+        node_t *current_node = head;
+        node_t *prev_node = head;   
+        while(current_node != NULL)
+        {printf("3\n");
+            if ((current_node->data.thread_complete == true) && (current_node == head))
+            {
+                head = current_node->next_node;
+                pthread_join(current_node->data.thread_id, NULL);
+                free(current_node);
+                current_node = prev_node->next_node;
+            }
+            else if ((current_node->data.thread_complete == true) && (current_node != head))
+            {
+                prev_node->next_node = current_node->next_node;
+                pthread_join(current_node->data.thread_id, NULL);
+                free(current_node);
+                current_node = prev_node->next_node;
+            }
+            else
+            {
+                prev_node = current_node;
+                current_node = current_node->next_node;
+            }
+        }
+    }
+
+    if (head!=NULL) 
+    {
+        if(head->data.thread_complete == 1) {
+            pthread_join(head->data.thread_id, NULL);
+            free(head);
+            head = NULL;
+        }
+    }
+}
 
 int main (int argc, char** argv)
 {
@@ -706,9 +758,9 @@ int main (int argc, char** argv)
     // is specified in flags) be created by open().
     // int open(const char *pathname, int flags, mode_t mode);
     // manpage: https://man7.org/linux/man-pages/man2/open.2.html
-    int socket_file_fd;
+    
     int server_socket_fd;
-    socket_file_fd = open(socket_file_path, O_RDWR | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
+    socket_file_fd = open(socket_file_path, O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
     if(socket_file_fd == -1) // returns -1 on error else file descriptor
     {
         printf("\nError: Failed open(). Error code: %d\n", errno);
@@ -883,8 +935,6 @@ int main (int argc, char** argv)
     struct sockaddr_in client_sock_addr;
     socklen_t client_sock_addr_len = sizeof(client_sock_addr);
     char* rx_storage_buffer = NULL;
-    
-    int socket_file_fd_len = 0;
 
     node_t *head = NULL;
     node_t *current_node = NULL;
@@ -937,8 +987,6 @@ int main (int argc, char** argv)
         new_node->data.client_socket_fd = client_socket_fd;
         new_node->data.thread_complete = false;
         new_node->data.client_sock_addr = client_sock_addr;
-        new_node->data.socket_file_fd = &socket_file_fd;
-        new_node->data.socket_file_fd_len = &socket_file_fd_len;
 
         // Creating a thread to run threadfunc with parameters thread_param
         int status = pthread_create(&(new_node->data.thread_id), NULL, thread_func, &(new_node->data));
@@ -951,17 +999,24 @@ int main (int argc, char** argv)
         }
         else
         {
-            printf("Success in creating thread with ID: %lu!\n", (new_node->data.thread_id));
+            printf("Spawning thread with ID: %lu!\n", (new_node->data.thread_id));
         }
 
+
+        
+        printf("Pushed to linkedlist\n");
         ll_push(&head, new_node);
 
+        printf("Trying to join threads\n");
+        current_node = head;
+        prev_node = head;
         while(current_node != NULL)
         {
             if ((current_node->data.thread_complete == true) && (current_node == head))
             {
                 head = current_node->next_node;
                 pthread_join(current_node->data.thread_id, NULL);
+                printf("Joining thread with ID: %lu!\n", (new_node->data.thread_id));
                 free(current_node);
                 current_node = prev_node->next_node;
             }
@@ -969,6 +1024,7 @@ int main (int argc, char** argv)
             {
                 prev_node->next_node = current_node->next_node;
                 pthread_join(current_node->data.thread_id, NULL);
+                printf("Joining thread with ID: %lu!\n", (new_node->data.thread_id));
                 free(current_node);
                 current_node = prev_node->next_node;
             }
@@ -980,10 +1036,21 @@ int main (int argc, char** argv)
         }
     }
 
+    if (head) 
+    {
+        if(head->data.thread_complete == 1) {
+            pthread_join(head->data.thread_id, NULL);
+            free(head);
+            printf("Joining thread with ID: %lu!\n", (head->data.thread_id));
+            head = NULL;
+        }
+    }
+    
     struct clean_up_data clean_data;
     clean_data.server_soc_fd = server_socket_fd;
-    clean_data.client_soc_fd = client_socket_fd;
     clean_data.rx_storage_buff = rx_storage_buffer;
+
+    clean_ll(head);
 
     program_kill_clean_up(clean_data);
 
