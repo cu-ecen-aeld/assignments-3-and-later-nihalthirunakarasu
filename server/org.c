@@ -32,8 +32,6 @@ Reference: https://beej.us/guide/bgnet/html/
 #define DEBUG 1
 #define ASCII_NEWLINE 10
 #define PORT_NUMBER 9000
-#define INIT_BUF_SIZE 1024
-#define TIME_PERIOD 10
 
 char socket_file_path[50] = "/var/tmp/aesdsocketdata";
 
@@ -55,76 +53,6 @@ struct clean_up_data
 
 void *print_cal()
 {
-    struct timespec ts;
-    time_t t;
-    struct tm* temp;
-
-    while(!kill_program)
-    {
-        char buffer[INIT_BUF_SIZE] = {0};
-
-        if(0 !=clock_gettime(CLOCK_MONOTONIC, &ts))
-        {
-            perror("Clock get time failed: ");
-            break;
-        }
-        ts.tv_sec += TIME_PERIOD;
-
-        /* If signal received exit thread */
-        if(kill_program)
-        {
-            pthread_exit(NULL);
-        }
-
-        if(0 != clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, NULL))
-        {
-            perror("clock nanosleep failed: ");
-            break;
-        }
-        /* If signal received exit thread */
-        if(kill_program)
-        {
-            pthread_exit(NULL);
-        }
-        
-        t = time(NULL);
-        if (t == ((time_t) -1))
-        {
-            perror("time since epoch failed: ");
-            break;
-        }
-
-        temp = localtime(&t);
-        if (temp == NULL)
-        {
-            perror("Local time failed: ");
-            break;
-        }
-
-        int len = strftime(buffer, INIT_BUF_SIZE, "timestamp: %Y, %b, %d, %H:%M:%S\n", temp);
-        if(len == 0)
-        {
-            syslog(LOG_ERR, "Failed to get time");
-        }
-
-        if (0 != pthread_mutex_lock(&mutex)) {
-            perror("Mutex lock failed: ");
-            break;
-        }
-
-        if (-1 == write(socket_file_fd, buffer, len))
-        {
-            perror("write timestamp failed: ");
-        }
-
-        if (pthread_mutex_unlock(&mutex) != 0) {
-            perror("Mutex unlock failed: ");
-            break;
-        }
-    }
-    return NULL;
-}
-/*{
     while (!kill_program)
     {
         if(print_call_program)
@@ -216,7 +144,7 @@ void *print_cal()
     }
 
     return NULL;
-}*/
+}
 
 void sig_handler(int signum)
 {
@@ -240,11 +168,11 @@ void sig_handler(int signum)
         // Flag to kill the program
         kill_program = true;
     }
-    // else if (signum == SIGALRM)
-    // {
-    //     // Syslog the error into the syslog file in /var/log
-    //     print_call_program = true;
-    // }
+    else if (signum == SIGALRM)
+    {
+        // Syslog the error into the syslog file in /var/log
+        print_call_program = true;
+    }
 }
 
 void sig_init()
@@ -303,13 +231,13 @@ void sig_init()
         exit (EXIT_FAILURE);
     }
 
-    // if (sigaction(SIGALRM, &act, NULL) == -1)
-    // {
-    //     printf("\nError: Failed sigfillset(). Error code: %d\n", errno);
-    //     // Syslog the error into the syslog file in /var/log
-    //     syslog(LOG_ERR, "Error: Failed sigfillset(). Error code: %d", errno);
-    //     exit (EXIT_FAILURE);
-    // }
+    if (sigaction(SIGALRM, &act, NULL) == -1)
+    {
+        printf("\nError: Failed sigfillset(). Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed sigfillset(). Error code: %d", errno);
+        exit (EXIT_FAILURE);
+    }
 }
 
 void program_kill_clean_up(struct clean_up_data data)
@@ -333,7 +261,7 @@ void program_kill_clean_up(struct clean_up_data data)
         printf("\nError: Failed close() the server_socket_fd. Error code: %d\n", errno);
         // Syslog the error into the syslog file in /var/log
         syslog(LOG_ERR, "Error: Failed close() the server_socket_fd. Error code: %d", errno);
-        // exit(-1);
+        exit(-1);
     }
 
     // Unlinking the socket_file_fd to delete it from file system
@@ -349,7 +277,7 @@ void program_kill_clean_up(struct clean_up_data data)
         printf("\nError: Failed unlink() the socket_file_fd. Error code: %d\n", errno);
         // Syslog the error into the syslog file in /var/log
         syslog(LOG_ERR, "Error: Failed unlink() the socket_file_fd. Error code: %d", errno);
-        // exit(-1);
+        exit(-1);
     }
 
     closelog();
@@ -357,7 +285,7 @@ void program_kill_clean_up(struct clean_up_data data)
     printf("\n\nSuccessfully Cleaned Up!\nTerminating....\n\nSee you soon and go conquer the world...\n");
 
     syslog(LOG_INFO, "AESDSOCKET program terminated!!");
-    //exit(0);
+    exit(0);
 }
 
 static int daemon_init()
@@ -423,7 +351,7 @@ static int daemon_init()
     return 0;
 }
 
-/*void timer_init()
+void timer_init()
 {
     int status;
 
@@ -466,7 +394,7 @@ static int daemon_init()
         syslog(LOG_ERR, "Error: Failed timer_create(). Error code: %d", errno);
         exit (EXIT_FAILURE);
     }
-} */
+}
 
 
 typedef struct 
@@ -820,8 +748,8 @@ int main (int argc, char** argv)
     // Initializing signals and their respective signal handlers
     sig_init();
 
-    // // Initializing the timer
-    // timer_init();
+    // Initializing the timer
+    timer_init();
 
     /*********************************************************************************************************
                             Creating or opening the file /var/tmp/aesdsocketdata
@@ -1092,25 +1020,17 @@ int main (int argc, char** argv)
         clean_ll(&head, 0);
     }
 
-    // timer_delete(timer_id);
+    timer_delete(timer_id);
 
-    //
-
-
-    
+    pthread_join(timer_thread_id, NULL);
 
     clean_ll(&head, 1);
 
     struct clean_up_data clean_data;
     clean_data.server_soc_fd = server_socket_fd;
-
-    
-
     program_kill_clean_up(clean_data);
 
-    // printf("Was here!\n");
-
-    pthread_join(timer_thread_id, NULL);
+    
 
     return 0;
 }
