@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 #############################################################################
 # Write a shell script finder-app/writer.sh as described below
