@@ -27,24 +27,33 @@ Reference: https://beej.us/guide/bgnet/html/
 #include <linux/fs.h>
 #include <sys/stat.h>
 
-
-
-#define DEBUG 1
+#define DEBUG 0
 #define ASCII_NEWLINE 10
 #define PORT_NUMBER 9000
 #define INIT_BUF_SIZE 1024
 #define TIME_PERIOD 10
 
+// A8 build switch
+#define USE_AESD_CHAR_DEVICE 1 // Comment for normal AESD socket working
+
+#ifndef USE_AESD_CHAR_DEVICE
 char socket_file_path[50] = "/var/tmp/aesdsocketdata";
+#else
+char socket_file_path[50] = "/dev/aesdchar";
+#endif
 
 bool kill_program = false;
 bool print_call_program = false;
 
 int socket_file_fd;
 
+#ifndef USE_AESD_CHAR_DEVICE
+
 timer_t timer_id;
 
 pthread_mutex_t mutex;
+
+#endif
 
 struct clean_up_data
 {
@@ -53,6 +62,7 @@ struct clean_up_data
     char* rx_storage_buff;
 };
 
+#ifndef USE_AESD_CHAR_DEVICE
 void *print_cal()
 {
     struct timespec ts;
@@ -124,99 +134,7 @@ void *print_cal()
     }
     return NULL;
 }
-/*{
-    while (!kill_program)
-    {
-        if(print_call_program)
-        {
-            int status;
-
-            // time_t rawtime;
-            // struct tm *walltime;
-            char buffer[80] = {0};
-
-            time_t now = time(NULL);
-            struct tm *walltime = localtime(&now);
-
-            // // // time() returns the time as the number of seconds since the Epoch,
-            // // // 1970-01-01 00:00:00 +0000 (UTC).
-            // // // time_t time(time_t *tloc);
-            // // // manpage: https://man7.org/linux/man-pages/man2/time.2.html
-            // status = time( &rawtime );
-            // if (status == -1) // Returns -1 on error and epoch success 
-            // {
-            //     printf("\nError: Failed setsid(). Error code: %d\n", errno);
-            //     // Syslog the error into the syslog file in /var/log
-            //     syslog(LOG_ERR, "Error: Failed setsid(). Error code: %d", errno);
-            //     exit (EXIT_FAILURE);;
-            // }
-            
-            // The localtime() function shall convert the time in seconds since
-            // the Epoch pointed to by timer into a broken-down time, expressed
-            // as a local time. The function corrects for the timezone and any
-            // seasonal time adjustments. 
-            // struct tm *localtime(const time_t *timep);
-            // manpage: https://man7.org/linux/man-pages/man3/localtime.3p.html
-            // walltime = localtime( &rawtime );
-            walltime = localtime( &now );
-            if (walltime == NULL) // Returns NULL on error 
-            {
-                printf("\nError: Failed localtime(). Error code: %d\n", errno);
-                // Syslog the error into the syslog file in /var/log
-                syslog(LOG_ERR, "Error: Failed localtime(). Error code: %d", errno);
-                exit (EXIT_FAILURE);
-            }
-
-            // // year, month, day, hour (in 24 hour format) minute and second representing the system wall clock time
-            strftime(buffer,sizeof(buffer),"timestamp:%Y-%m-%d %H:%M:%S\n", walltime);
-            // sprintf(write_buffer, "timestamp:%s\n", buffer);
-
-            // The mutex object referenced by mutex shall be locked by a call to
-            // pthread_mutex_lock() that returns zero or [EOWNERDEAD].  If the
-            // mutex is already locked by another thread, the calling thread
-            // shall block until the mutex becomes available.
-            // int pthread_mutex_lock(pthread_mutex_t *mutex);
-            //  manpage: https://man7.org/linux/man-pages/man3/pthread_mutex_lock.3p.html
-            status = pthread_mutex_lock(&mutex);
-            if(status != 0) // returns non zero on error
-            {
-                printf("\nError: Failed pthread_mutex_lock(). Error code: %d\n", errno);
-                // Syslog the error into the syslog file in /var/log
-                syslog(LOG_ERR, "Error: Failed pthread_mutex_lock(). Error code: %d", errno);
-                // return -1;
-            }
-
-            int bytes_written = write(socket_file_fd, buffer, strlen(buffer));
-            if(bytes_written == -1) // returns -1 on error else number of bytes written
-            {
-                printf("\nError: Failed write(). Error code: %d\n", errno);
-                // Syslog the error into the syslog file in /var/log
-                syslog(LOG_ERR, "Error: Failed write(). Error code: %d", errno);
-                // return -1;
-            }
-
-            // The mutex object referenced by mutex shall be locked by a call to
-            // pthread_mutex_lock() that returns zero or [EOWNERDEAD].  If the
-            // mutex is already locked by another thread, the calling thread
-            // shall block until the mutex becomes available.
-            // int pthread_mutex_lock(pthread_mutex_t *mutex);
-            //  manpage: https://man7.org/linux/man-pages/man3/pthread_mutex_lock.3p.html
-            status = pthread_mutex_unlock(&mutex);
-            if(status != 0) // returns non zero on error
-            {
-                printf("\nError: Failed pthread_mutex_unlock(). Error code: %d\n", errno);
-                // Syslog the error into the syslog file in /var/log
-                syslog(LOG_ERR, "Error: Failed pthread_mutex_unlock(). Error code: %d", errno);
-                // return -1;
-            }
-            print_call_program = false;
-
-            printf("%s", buffer);
-        }
-    }
-
-    return NULL;
-}*/
+#endif
 
 void sig_handler(int signum)
 {
@@ -240,11 +158,6 @@ void sig_handler(int signum)
         // Flag to kill the program
         kill_program = true;
     }
-    // else if (signum == SIGALRM)
-    // {
-    //     // Syslog the error into the syslog file in /var/log
-    //     print_call_program = true;
-    // }
 }
 
 void sig_init()
@@ -336,6 +249,7 @@ void program_kill_clean_up(struct clean_up_data data)
         // exit(-1);
     }
 
+#ifndef USE_AESD_CHAR_DEVICE
     // Unlinking the socket_file_fd to delete it from file system
     // unlink() deletes a name from the filesystem.  If that name was
     // the last link to a file and no processes have the file open, the
@@ -351,6 +265,7 @@ void program_kill_clean_up(struct clean_up_data data)
         syslog(LOG_ERR, "Error: Failed unlink() the socket_file_fd. Error code: %d", errno);
         // exit(-1);
     }
+#endif
 
     closelog();
 
@@ -423,52 +338,6 @@ static int daemon_init()
     return 0;
 }
 
-/*void timer_init()
-{
-    int status;
-
-    // timer_create() creates a new per-process interval timer.  The ID
-    // of the new timer is returned in the buffer pointed to by timerid,
-    // which must be a non-null pointer.  This ID is unique within the
-    // process, until the timer is deleted.  The new timer is initially
-    // disarmed.
-    // int timer_create(clockid_t clockid, struct sigevent *restrict sevp,
-    //                  timer_t *restrict timerid);
-    // manpage: https://man7.org/linux/man-pages/man2/timer_create.2.html
-    
-    status = timer_create(CLOCK_MONOTONIC, NULL, &timer_id); 
-    if (status == -1) // Returns -1 on error and 0 on success 
-    {
-        printf("\nError: Failed timer_create(). Error code: %d\n", errno);
-        // Syslog the error into the syslog file in /var/log
-        syslog(LOG_ERR, "Error: Failed timer_create(). Error code: %d", errno);
-        exit (EXIT_FAILURE);
-    }
-
-    // timer_settime() arms or disarms the timer identified by timerid.
-    // The new_value argument is pointer to an itimerspec structure that
-    // specifies the new initial value and the new interval for the
-    // timer.
-    // int timer_settime(timer_t timerid, int flags,
-    //                   const struct itimerspec *restrict new_value,
-    //                   struct itimerspec *restrict old_value);
-    // manpage: https://man7.org/linux/man-pages/man2/timer_settime.2.html
-    struct itimerspec timer_spec;
-    timer_spec.it_value.tv_sec = 10; // 10 seconds delay 
-    timer_spec.it_value.tv_nsec = 0; // 0 nano-seconds delay 
-    timer_spec.it_interval.tv_sec = 10; // 10 seconds interval
-    timer_spec.it_interval.tv_nsec = 0; // 0 nano-seconds interval 
-    status = timer_settime(timer_id, CLOCK_MONOTONIC, &timer_spec, NULL); 
-    if (status == -1) // Returns -1 on error and 0 on success 
-    {
-        printf("\nError: Failed timer_create(). Error code: %d\n", errno);
-        // Syslog the error into the syslog file in /var/log
-        syslog(LOG_ERR, "Error: Failed timer_create(). Error code: %d", errno);
-        exit (EXIT_FAILURE);
-    }
-} */
-
-
 typedef struct 
 {
     int client_socket_fd;
@@ -491,8 +360,9 @@ void *thread_func(void *arg)
     int client_socket_fd = thread_arg->client_socket_fd;
     struct sockaddr_in client_sock_addr = thread_arg->client_sock_addr;
     int socket_file_fd_len;
+#ifndef USE_AESD_CHAR_DEVICE
     int file_data_size = 0;
-
+#endif
     printf("\n\nNew Connection accepted\n");
     // Syslog the info into the syslog file in /var/log
     syslog(LOG_INFO, "New connection accepted");
@@ -617,6 +487,7 @@ void *thread_func(void *arg)
     // Refer to https://stackoverflow.com/questions/39180642/why-does-printf-not-produce-any-output
 #endif
 
+#ifndef USE_AESD_CHAR_DEVICE
     // The mutex object referenced by mutex shall be locked by a call to
     // pthread_mutex_lock() that returns zero or [EOWNERDEAD].  If the
     // mutex is already locked by another thread, the calling thread
@@ -632,6 +503,7 @@ void *thread_func(void *arg)
         // return -1;
         goto err_handle;
     }
+#endif
 
     /*********************************************************************************************************
                                     Writing to file /var/tmp/aesdsocketdata
@@ -650,6 +522,8 @@ void *thread_func(void *arg)
         goto err_handle;
     }
 
+    char *tx_storage_buffer;
+#ifndef USE_AESD_CHAR_DEVICE
     off_t offset;
     // Setting the current file pointer to the start using lseek
     // lseek() repositions the file offset of the open file description
@@ -662,7 +536,7 @@ void *thread_func(void *arg)
     {
         printf("\nError: Failed lseek(). Error code: %d\n", errno);
         // Syslog the error into the syslog file in /var/log
-        syslog(LOG_ERR, "Error: lseek write(). Error code: %d", errno);
+        syslog(LOG_ERR, "Error: lseek lseek(). Error code: %d", errno);
         // return -1;
         goto err_handle;
     }
@@ -687,7 +561,7 @@ void *thread_func(void *arg)
     }
     socket_file_fd_len = offset;
     // mallocing a buffer big enough to accomodate the entire file's data
-    char *tx_storage_buffer = (char*)malloc(socket_file_fd_len);
+    tx_storage_buffer = (char*)malloc(socket_file_fd_len);
     if(!tx_storage_buffer)
     {
         goto err_handle;
@@ -710,7 +584,6 @@ void *thread_func(void *arg)
         goto err_handle;
     }
 
-#if DEBUG
     printf("Data Len Transmitted: %d\n", socket_file_fd_len);
     for(i=0;i<socket_file_fd_len;i++)
     {
@@ -718,7 +591,7 @@ void *thread_func(void *arg)
     }
     printf("\n"); // It seems line the system was buffering the printf so absense of new line was making it buffer and printing only the next time new line was met
     // Refer to https://stackoverflow.com/questions/39180642/why-does-printf-not-produce-any-output
-#endif
+
 
     /*********************************************************************************************************
                                     Sending Data from server to client
@@ -752,6 +625,39 @@ void *thread_func(void *arg)
         syslog(LOG_ERR, "Error: Failed pthread_mutex_unlock(). Error code: %d", errno);
         // return -1;
     }
+#else
+
+    int bytes_read;
+    socket_file_fd_len = 10;
+
+    tx_storage_buffer = (char*)malloc(socket_file_fd_len);
+    if(!tx_storage_buffer)
+    {
+        goto err_handle;
+    }
+
+    while((bytes_read = read(socket_file_fd, tx_storage_buffer, socket_file_fd_len)) > 0) 
+    {
+        if( bytes_read == -1) 
+        { 
+            printf("\nError: Failed read(). Error code: %d\n", errno);
+            // Syslog the error into the syslog file in /var/log
+            syslog(LOG_ERR, "Error: Failed read(). Error code: %d", errno);
+            // return -1;
+            goto err_handle;
+        }
+        if(send(client_socket_fd, tx_storage_buffer, bytes_read, 0) == -1) 
+        {
+            printf("\nError: Failed send(). Error code: %d\n", errno);
+            // Syslog the error into the syslog file in /var/log
+            syslog(LOG_ERR, "Error: Failed send(). Error code: %d", errno);
+            // return -1;
+            goto err_handle;
+        }
+    }
+
+#endif
+
 
 err_handle:
     free(tx_storage_buffer);
@@ -833,7 +739,7 @@ int main (int argc, char** argv)
     // manpage: https://man7.org/linux/man-pages/man2/open.2.html
     
     int server_socket_fd;
-    socket_file_fd = open(socket_file_path, O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
+    socket_file_fd = open(socket_file_path, O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH | S_IWOTH);
     if(socket_file_fd == -1) // returns -1 on error else file descriptor
     {
         printf("\nError: Failed open(). Error code: %d\n", errno);
@@ -1010,6 +916,7 @@ int main (int argc, char** argv)
 
     node_t *head = NULL;
 
+#ifndef USE_AESD_CHAR_DEVICE
     // Thread for timer handling
     pthread_t timer_thread_id;
     status = pthread_create(&timer_thread_id, NULL, print_cal, NULL);
@@ -1024,6 +931,7 @@ int main (int argc, char** argv)
     {
         printf("Spawning timer thread with ID: %lu!\n", timer_thread_id);
     }
+#endif
 
     /*********************************************************************************************************
                                         Server Accepting Connection Requests
@@ -1092,13 +1000,6 @@ int main (int argc, char** argv)
         clean_ll(&head, 0);
     }
 
-    // timer_delete(timer_id);
-
-    //
-
-
-    
-
     clean_ll(&head, 1);
 
     struct clean_up_data clean_data;
@@ -1110,7 +1011,11 @@ int main (int argc, char** argv)
 
     // printf("Was here!\n");
 
+#ifndef USE_AESD_CHAR_DEVICE
+
     pthread_join(timer_thread_id, NULL);
+
+#endif
 
     return 0;
 }
