@@ -219,12 +219,39 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     return retval;
 }
 
+loff_t aesd_llseek(struct file *filp, loff_t offset, int whence)
+{
+    loff_t retval;
+    int status;
+
+    struct aesd_dev *dev = filp->private_data;
+
+    // Locking using the interruptable version so that it can handle signals unlike non interruptable versions
+    status = mutex_lock_interruptible(&dev->lock);
+    if (status != 0)
+    {
+        PDEBUG("Error: mutex_lock_interruptible failed");
+        retval = -ERESTARTSYS;
+        goto out;
+    }
+
+    // Calling the system call fixed_size_llseek
+    retval = fixed_size_llseek(filp, offset, whence, dev->aesd_circular_buffer.size_cb);
+    PDEBUG("Info: New file position from llseek is %llu", retval);
+
+    // Unlocking
+    mutex_unlock(&dev->lock);
+
+    out: return retval;
+}
+
 struct file_operations aesd_fops = {
     .owner =    THIS_MODULE,
     .read =     aesd_read,
     .write =    aesd_write,
     .open =     aesd_open,
     .release =  aesd_release,
+    .llseek =   aesd_llseek,
 };
 
 static int aesd_setup_cdev(struct aesd_dev *dev)
@@ -311,7 +338,6 @@ void aesd_cleanup_module(void)
 //      > calculate the start offset to write_cmd
 //      > add write_cmd_offset
 //      > save as flip->f_pos
-
 
 
 module_init(aesd_init_module);

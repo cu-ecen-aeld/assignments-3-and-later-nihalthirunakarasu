@@ -155,6 +155,10 @@ char *aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const 
 
     if(buffer->full)
     {
+        // Subtracting the size of the element removed from the circular buffer
+        buffer->size_cb -= buffer->entry[buffer->out_offs].size;
+
+        // 
         temp = (char*)buffer->entry[buffer->out_offs].buffptr;
         buffer->out_offs++;
         // Handling overflow condition
@@ -166,6 +170,10 @@ char *aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const 
     buffer->entry[buffer->in_offs].size = add_entry->size;
 
     (buffer->in_offs)++;
+
+    // Adding the size of the new element to the size of circular buffer
+    buffer->size_cb += add_entry->size;
+
     // Handling overflow condition
     if(buffer->in_offs >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
         buffer->in_offs = 0;
@@ -192,4 +200,7 @@ void aesd_circular_buffer_init(struct aesd_circular_buffer *buffer)
 
     // Starting with an empty buffer
     buffer->full = false;
+
+    // Setting the buffer size to 0
+    buffer->size_cb = 0;
 }

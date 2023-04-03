@@ -49,6 +49,10 @@ struct aesd_circular_buffer
      * set to true when the buffer entry structure is full
      */
     bool full;
+    /**
+     * The total size of the circular buffer
+     */
+    uint32_t size_cb;
 };
 
 extern struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct aesd_circular_buffer *buffer,
