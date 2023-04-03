@@ -27,6 +27,8 @@ Reference: https://beej.us/guide/bgnet/html/
 #include <linux/fs.h>
 #include <sys/stat.h>
 
+#include "../aesd-char-driver/aesd_ioctl.h"
+
 #define DEBUG 0
 #define ASCII_NEWLINE 10
 #define PORT_NUMBER 9000
@@ -508,21 +510,52 @@ void *thread_func(void *arg)
     /*********************************************************************************************************
                                     Writing to file /var/tmp/aesdsocketdata
     **********************************************************************************************************/
-    // write() writes up to count bytes from the buffer starting at buf
-    // to the file referred to by the file descriptor fd.
-    // ssize_t write(int fd, const void *buf, size_t count);
-    // manpage: https://man7.org/linux/man-pages/man2/write.2.html
-    int bytes_written = write(socket_file_fd, rx_storage_buffer, rx_storage_buffer_len);
-    if(bytes_written == -1) // returns -1 on error else number of bytes written
+    const char ioctl_aesdchar_seek_to[] = "AESDCHAR_IOCSEEKTO:";
+    int status;
+    
+    status = strncmp(rx_storage_buffer, ioctl_aesdchar_seek_to, strlen(ioctl_aesdchar_seek_to));
+    if(status == 0)
     {
-        printf("\nError: Failed write(). Error code: %d\n", errno);
-        // Syslog the error into the syslog file in /var/log
-        syslog(LOG_ERR, "Error: Failed write(). Error code: %d", errno);
-        // return -1;
-        goto err_handle;
+        // When the command is recieved we will call the ioctl
+
+        struct aesd_seekto temp_seekto;
+
+        // Extracting the values of cmd_write and cmd_write_offset from the string
+        sscanf(rx_storage_buffer, "AESDCHAR_IOCSEEKTO:%d,%d", &temp_seekto.write_cmd, &temp_seekto.write_cmd_offset);
+
+        status = ioctl(socket_file_fd, AESDCHAR_IOCSEEKTO, &temp_seekto);
+        if(status != 0)
+        {
+            printf("\nError: Failed write(). Error code: %d\n", errno);
+            // Syslog the error into the syslog file in /var/log
+            syslog(LOG_ERR, "Error: Failed write(). Error code: %d", errno);
+            // return -1;
+            goto err_handle;
+        }
+
     }
+    else
+    {
+        // No command recieved so we will write to the file
+        // write() writes up to count bytes from the buffer starting at buf
+        // to the file referred to by the file descriptor fd.
+        // ssize_t write(int fd, const void *buf, size_t count);
+        // manpage: https://man7.org/linux/man-pages/man2/write.2.html
+        int bytes_written = write(socket_file_fd, rx_storage_buffer, rx_storage_buffer_len);
+        if(bytes_written == -1) // returns -1 on error else number of bytes written
+        {
+            printf("\nError: Failed write(). Error code: %d\n", errno);
+            // Syslog the error into the syslog file in /var/log
+            syslog(LOG_ERR, "Error: Failed write(). Error code: %d", errno);
+            // return -1;
+            goto err_handle;
+        }
+    }
+    
 
     char *tx_storage_buffer;
+
+
 #ifndef USE_AESD_CHAR_DEVICE
     off_t offset;
     // Setting the current file pointer to the start using lseek
