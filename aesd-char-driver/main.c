@@ -218,6 +218,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 
     return retval;
 }
+
 struct file_operations aesd_fops = {
     .owner =    THIS_MODULE,
     .read =     aesd_read,
@@ -241,7 +242,6 @@ static int aesd_setup_cdev(struct aesd_dev *dev)
     }
     return status;
 }
-
 
 
 int aesd_init_module(void)
@@ -297,6 +297,20 @@ void aesd_cleanup_module(void)
 
     unregister_chrdev_region(devno, 1);
 }
+
+// ToDo A9:
+// - fized_size_llseek uses size of the file and so the CB will have to caclulate the size of the CB
+// - Option 2 is implement own llseek functionbut use the fized_size_llseek
+//      > the read and write function should update the f_pos value that is passed as pointer for the kernel call for lseek to work
+// - IOCTL based on the .h file 
+// - The user will fill the structure and you will have to seek to that command and the offset within the command
+// - Use fill no to convert the file stream into a fd (of int type)
+// - Will have to use copy from user to copy this to the kernel space and then work on it
+// - Call the aesd_adjust_file_offset() from the ioctl switch case
+//      > check for valid write_cmd and write_cmd_offset
+//      > calculate the start offset to write_cmd
+//      > add write_cmd_offset
+//      > save as flip->f_pos
 
 
 
