@@ -47,8 +47,6 @@ char socket_file_path[50] = "/dev/aesdchar";
 bool kill_program = false;
 bool print_call_program = false;
 
-int socket_file_fd;
-
 #ifndef USE_AESD_CHAR_DEVICE
 
 timer_t timer_id;
@@ -347,6 +345,7 @@ typedef struct
     struct sockaddr_in client_sock_addr;
     pthread_t thread_id;
     char* rx_storage_buffer;
+    int socket_file_fd;
 } thread_data_t;
 
 typedef struct node_s
@@ -368,6 +367,25 @@ void *thread_func(void *arg)
     printf("\n\nNew Connection accepted\n");
     // Syslog the info into the syslog file in /var/log
     syslog(LOG_INFO, "New connection accepted");
+
+    /*********************************************************************************************************
+                            Creating or opening the file /var/tmp/aesdsocketdata
+    **********************************************************************************************************/
+    // The open() system call opens the file specified by pathname.  If
+    // the specified file does not exist, it may optionally (if O_CREAT
+    // is specified in flags) be created by open().
+    // int open(const char *pathname, int flags, mode_t mode);
+    // manpage: https://man7.org/linux/man-pages/man2/open.2.html
+    
+    int socket_file_fd;
+    socket_file_fd = open(socket_file_path, O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH | S_IWOTH);
+    if(socket_file_fd == -1) // returns -1 on error else file descriptor
+    {
+        printf("\nError: Failed open(). Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed open(). Error code: %d", errno);
+    }
+    thread_arg->socket_file_fd = socket_file_fd;
 
     // The getsockname() returns the current address to which the socket
     // sockfd is bound, in the buffer pointed to by addr.  The addrlen
@@ -694,6 +712,16 @@ void *thread_func(void *arg)
 
 
 err_handle:
+    status = close(socket_file_fd);
+    if(status != 0) // returns 0 if it succeeds else -1 on error
+    {
+        printf("\nError: Failed close() the socket_file_fd. Error code: %d\n", errno);
+        // Syslog the error into the syslog file in /var/log
+        syslog(LOG_ERR, "Error: Failed close() the server_socket_fd. Error code: %d", errno);
+        // exit(-1);
+    }    
+
+
     free(tx_storage_buffer);
     free(rx_storage_buffer);
 
@@ -737,7 +765,7 @@ void clean_ll(node_t** head, int is_flag)
                 prev_node->next_node = current_node;
             }
             if(temp)
-            {
+            { 
                 pthread_join(temp->data.thread_id, NULL);
                 free(temp);
             }
@@ -762,26 +790,6 @@ int main (int argc, char** argv)
 
     // // Initializing the timer
     // timer_init();
-
-    /*********************************************************************************************************
-                            Creating or opening the file /var/tmp/aesdsocketdata
-    **********************************************************************************************************/
-    // The open() system call opens the file specified by pathname.  If
-    // the specified file does not exist, it may optionally (if O_CREAT
-    // is specified in flags) be created by open().
-    // int open(const char *pathname, int flags, mode_t mode);
-    // manpage: https://man7.org/linux/man-pages/man2/open.2.html
-    
-    int server_socket_fd;
-    socket_file_fd = open(socket_file_path, O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH | S_IWOTH);
-    if(socket_file_fd == -1) // returns -1 on error else file descriptor
-    {
-        printf("\nError: Failed open(). Error code: %d\n", errno);
-        // Syslog the error into the syslog file in /var/log
-        syslog(LOG_ERR, "Error: Failed open(). Error code: %d", errno);
-        return -1;
-    }
-
 
     /*********************************************************************************************************
                                                 Daemon Check
@@ -822,7 +830,7 @@ int main (int argc, char** argv)
     // int socket(int domain, int type, int protocol);
     // manpage: https://man7.org/linux/man-pages/man2/socket.2.html 
     // Setting SOCK_NONBLOCK enables to use the accept4 or make the socket non block to check for kill_program flag
-    
+    int server_socket_fd;
     server_socket_fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0); 
     if (server_socket_fd == -1) // 0 on success and -1 for error
     {
