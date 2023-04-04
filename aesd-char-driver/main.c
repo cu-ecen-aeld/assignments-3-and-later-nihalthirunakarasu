@@ -250,7 +250,7 @@ static long aesd_adjust_file_offset(struct file *filp, unsigned int write_cmd, u
 {
     struct aesd_dev *dev = NULL;
     loff_t temp_offset = 0;
-    long retval;
+    long retval = 0;
     int status;
     int i;
 
@@ -314,9 +314,12 @@ static long aesd_adjust_file_offset(struct file *filp, unsigned int write_cmd, u
 
         // If we havent reached the write_cmd yet then add to the temp_offset
         temp_offset += dev->aesd_circular_buffer.entry[i].size;
+
     }
     // Adding the write_cmd_offset to the begining of write_cmd
     temp_offset += write_cmd_offset;
+
+    PDEBUG("%lld", temp_offset);
 
     // Storing this value in the file pointer file position variable
     filp->f_pos = temp_offset;
@@ -341,7 +344,6 @@ long aesd_uioclt(struct file *filp, unsigned int cmd, unsigned long arg)
         retval = -ENOTTY;
         goto out;
     }
-
     if(_IOC_NR(cmd) > AESDCHAR_IOC_MAXNR)
     {
         PDEBUG("Error: Max number of commands did not match AESDCHAR_IOC_MAXNR. Expexcted: %d Actual: %d", AESDCHAR_IOC_MAXNR, _IOC_NR(cmd));

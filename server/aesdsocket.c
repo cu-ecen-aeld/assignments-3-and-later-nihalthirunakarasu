@@ -29,7 +29,7 @@ Reference: https://beej.us/guide/bgnet/html/
 
 #include "../aesd-char-driver/aesd_ioctl.h"
 
-#define DEBUG 0
+#define DEBUG 1
 #define ASCII_NEWLINE 10
 #define PORT_NUMBER 9000
 #define INIT_BUF_SIZE 1024
@@ -512,7 +512,8 @@ void *thread_func(void *arg)
     **********************************************************************************************************/
     const char ioctl_aesdchar_seek_to[] = "AESDCHAR_IOCSEEKTO:";
     int status;
-    
+    char *tx_storage_buffer;
+
     status = strncmp(rx_storage_buffer, ioctl_aesdchar_seek_to, strlen(ioctl_aesdchar_seek_to));
     if(status == 0)
     {
@@ -526,7 +527,7 @@ void *thread_func(void *arg)
         status = ioctl(socket_file_fd, AESDCHAR_IOCSEEKTO, &temp_seekto);
         if(status != 0)
         {
-            printf("\nError: Failed write(). Error code: %d\n", errno);
+            printf("\nError: Failed ioctl(). Error code: %d\n", errno);
             // Syslog the error into the syslog file in /var/log
             syslog(LOG_ERR, "Error: Failed write(). Error code: %d", errno);
             // return -1;
@@ -553,7 +554,7 @@ void *thread_func(void *arg)
     }
     
 
-    char *tx_storage_buffer;
+    
 
 
 #ifndef USE_AESD_CHAR_DEVICE
