@@ -1,4 +1,10 @@
 #include "systemcalls.h"
+#include <unistd.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <sys/wait.h>
+
 
 /**
  * @param cmd the command to execute with system()
@@ -16,6 +22,15 @@ bool do_system(const char *cmd)
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
+    int res = 0;
+
+    res = system(cmd);
+    
+    if(-1 == res)
+    {   
+        printf("\nError: system() returned error. Error code: %d", errno); 
+        return false;
+    }
 
     return true;
 }
@@ -59,6 +74,66 @@ bool do_exec(int count, ...)
  *
 */
 
+    int status_int;
+
+    // PID to store the child PID
+    pid_t child;   
+
+    // Checking if the command path is absolute
+    if(command[0][0] != '/')
+    {
+        printf("\nError: The file path entered is '%s' and is not absolute", command[0]);
+        return false;
+    }
+
+    // Stores the return in the child PID variable
+    child = fork();
+
+    if(-1 == child)
+    {
+        // Error handling the fork()
+        printf("\nError: fork() returned error. Error code: %d", errno);
+        return false;
+    }
+    else if (0 == child)
+    {
+        // Child executes this block
+        status_int = execv(command[0], command);
+
+        if (-1 == status_int)
+        {
+            printf("\nError: execv() returned error. Error code: %d", errno);
+            return false;
+        }
+    }
+    else
+    {
+        // Parent executes this block
+        pid_t status_pid = waitpid(child, &status_int, 0);
+
+        if (-1 == status_pid)
+        {
+            printf("\nError: waitpid() returned error. Error code: %d", errno);
+            return false;
+        }
+        // Checking id exited normally
+        else if(WIFEXITED(status_int))
+        {
+            // Evaluates to the lower order of 8 bits of status if the child is passed though exit() or main()
+            if(0 != WEXITSTATUS(status_int))
+            {
+                return false;
+            }
+            else
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+
     va_end(args);
 
     return true;
@@ -92,6 +167,94 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *   The rest of the behaviour is same as do_exec()
  *
 */
+    int status_int;
+    int re_dir_fd;
+
+    // PID to store the child PID
+    pid_t child;
+
+    // Checking if the command path is absolute
+    if(command[0][0] != '/')
+    {
+        printf("\nError: The file path entered is '%s' and is not absolute", command[0]);
+        return false;
+    }
+
+    // Open with truncate and write only permissions. Create if file is not present
+    // Create file with RW--W--W- permissions
+    re_dir_fd = open(outputfile, O_CREAT | O_TRUNC | O_WRONLY, 0644);
+    if(-1 == re_dir_fd)
+    {
+        // Error handling the open()
+        printf("\nError: open() returned error. Error code: %d", errno);
+        return false;
+    }
+
+
+    // Stores the return in the child PID variable
+    child = fork();
+    if(-1 == child)
+    {
+        // Error handling the fork()
+        printf("\nError: fork() returned error. Error code: %d", errno);
+        return false;
+    }
+    else if (0 == child)
+    {
+        // Child executes this block
+        
+        //Before running the code we will redirect the stdout (FD_1 to the new file)
+        status_int = dup2(re_dir_fd, 1);
+        if(-1 == status_int)
+        {
+            // Error handling the dup2()
+            printf("\nError: dup2() returned error. Error code: %d", errno);
+            return false;
+        }
+
+        status_int = close(re_dir_fd);
+        if(-1 == status_int)
+        {
+            // Error handling the close()
+            printf("\nError: close() returned error. Error code: %d", errno);
+            return false;
+        }
+
+        status_int = execv(command[0], command);
+
+        if (-1 == status_int)
+        {
+            printf("\nError: execv() returned error. Error code: %d", errno);
+            return false;
+        }
+    }
+    else
+    {
+        // Parent executes this block
+        pid_t status_pid = waitpid(child, &status_int, 0);
+
+        if (-1 == status_pid)
+        {
+            printf("\nError: waitpid() returned error. Error code: %d", errno);
+            return false;
+        }
+        // Checking id exited normally
+        else if(WIFEXITED(status_int))
+        {
+            // Evaluates to the lower order of 8 bits of status if the child is passed though exit() or main()
+            if(0 != WEXITSTATUS(status_int))
+            {
+                return false;
+            }
+            else
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
 
     va_end(args);
 
